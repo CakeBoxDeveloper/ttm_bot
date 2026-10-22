@@ -98,19 +98,20 @@ async function updateCell(sheet, cell, value) {
  */
 async function findPromo(code) {
   // Read all data rows (skip header row 1)
-  const rows = await readRange('Promo', 'A2:D1000');
+  const rows = await readRange('promo_codes', 'A2:D1000');
 
   for (let i = 0; i < rows.length; i++) {
-    const [rowCode, discount, desc, used] = rows[i];
+    const [rowCode, discount, desc, active] = rows[i];
     if (!rowCode) continue;
     if (rowCode.trim().toUpperCase() !== code.toUpperCase()) continue;
 
-    // Found — check if used
-    if (used && used.toString().toUpperCase() === 'TRUE') {
+    // Found — check if active (checkbox: TRUE = active, FALSE = used/inactive)
+    const isActive = !active || active.toString().toUpperCase() === 'TRUE';
+    if (!isActive) {
       return { found: true, used: true, discount, desc };
     }
 
-    return { found: true, used: false, discount, desc, rowIndex: i + 2 }; // +2 for header
+    return { found: true, used: false, discount, desc, rowIndex: i + 2 };
   }
 
   return { found: false };
@@ -120,7 +121,7 @@ async function findPromo(code) {
  * Mark a promo code as used.
  */
 async function markPromoUsed(rowIndex) {
-  await updateCell('Promo', `D${rowIndex}`, 'TRUE');
+  await updateCell('promo_codes', `D${rowIndex}`, false);
 }
 
 module.exports = { findPromo, markPromoUsed };
