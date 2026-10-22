@@ -241,9 +241,13 @@ async function handleUpdate(update) {
           { parse_mode: 'Markdown', ...MAIN_INLINE }
         );
       } else {
+        // If discount is a % value show it, otherwise show only desc
+        const discountLine = result.discount && /\d/.test(result.discount)
+          ? `🎉 Знижка: *${result.discount}*\n`
+          : '';
         await bot.sendMessage(
           chatId,
-          `✅ Код *${code}* дійсний!\n\n🎉 Знижка: *${result.discount}*\n_${result.desc}_\n\nНазви цей код майстру при записі.`,
+          `✅ Код *${code}* дійсний!\n\n${discountLine}_${result.desc}_\n\nНазви цей код майстру при записі.`,
           { parse_mode: 'Markdown', ...MAIN_INLINE }
         );
       }

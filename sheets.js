@@ -38,7 +38,7 @@ async function getAccessToken() {
   const sigInput = `${b64(header)}.${b64(payload)}`;
 
   // Sign with RSA-SHA256 using Node crypto
-  const { createSign } = await import('node:crypto');
+  const { createSign } = require('node:crypto');
   const sign = createSign('RSA-SHA256');
   sign.update(sigInput);
   const signature = sign.sign(PRIVATE_KEY, 'base64url');
