@@ -51,9 +51,6 @@ async function subscribePrompt(chatId) {
     `Для роботи бота потрібна підписка на наш канал.\n` +
     `<tg-button-row align="center">` +
     `<tg-button type="url" style="success" url="${channelUrl}">📢 Підписатись на канал</tg-button>` +
-    `</tg-button-row>` +
-    `<tg-button-row align="center">` +
-    `<tg-button type="callback_data" style="success" data="check_sub">✅ Перевірити підписку</tg-button>` +
     `</tg-button-row>`;
 
   try {
@@ -62,7 +59,12 @@ async function subscribePrompt(chatId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        rich_message: { html }
+        rich_message: { html },
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Перевірити підписку', callback_data: 'check_sub' }
+          ]]
+        }
       })
     });
 
@@ -91,7 +93,8 @@ async function subscribePrompt(chatId) {
 const MAIN_KB = {
   reply_markup: {
     keyboard: [
-      [{ text: '🎟 Перевірити код знижки' }],
+      [{ text: '📅 Записатись на прийом' }],
+      [{ text: '🎟 Перевірити бонусний код' }],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
@@ -101,13 +104,20 @@ const MAIN_KB = {
 /* ─── State (resets on cold start) ─── */
 const waitingForCode = new Set();
 
-/* ─── Load discount codes ─── */
+/* ─── Load discount codes (legacy JSON fallback) ─── */
 function loadCodes() {
   try {
     return require('./codes.json');
   } catch {
     return {};
   }
+}
+
+// Sheets module — loaded lazily so missing env vars don't crash at startup
+let _sheets = null;
+function getSheets() {
+  if (!_sheets) _sheets = require('./sheets');
+  return _sheets;
 }
 
 /* ─── Main handler ─── */
@@ -120,12 +130,12 @@ async function handleUpdate(update) {
     const bot    = getBot();
 
     if (cq.data === 'check_sub') {
-      await bot.answerCallbackQuery(cq.id); // dismiss loading spinner
       const ok = await isSubscribed(userId);
       if (ok) {
+        await bot.answerCallbackQuery(cq.id, { text: '✅ Підписку підтверджено!' });
         await bot.sendMessage(
           chatId,
-          '✅ Підписку підтверджено!\n\n👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
+          '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
           { parse_mode: 'Markdown', ...MAIN_KB }
         );
       } else {
@@ -166,10 +176,20 @@ async function handleUpdate(update) {
   console.log(`[msg] isSubscribed=${ok} for userId=${userId}`);
   if (!ok) { await subscribePrompt(chatId); return; }
 
-  /* Enter code check mode */
-  if (text === '🎟 Перевірити код знижки') {
+  /* Записатись на прийом */
+  if (text === '📅 Записатись на прийом') {
+    await bot.sendMessage(
+      chatId,
+      '📅 Запис на прийом — функція скоро буде доступна.\n\nПоки що пиши нам напряму: @pro_telo_niko',
+      MAIN_KB
+    );
+    return;
+  }
+
+  /* Enter promo code check mode */
+  if (text === '🎟 Перевірити бонусний код') {
     waitingForCode.add(chatId);
-    await bot.sendMessage(chatId, '🔑 Введи свій код зі скретч-картки:', {
+    await bot.sendMessage(chatId, '🔑 Введи свій бонусний код:', {
       reply_markup: {
         keyboard: [[{ text: '❌ Скасувати' }]],
         resize_keyboard: true,
@@ -185,24 +205,40 @@ async function handleUpdate(update) {
     return;
   }
 
-  /* Process code */
+  /* Process promo code */
   if (waitingForCode.has(chatId)) {
     waitingForCode.delete(chatId);
-    const code  = text.toUpperCase();
-    const codes = loadCodes();
+    const code = text.toUpperCase();
 
-    if (codes[code]) {
-      const { discount, desc } = codes[code];
+    try {
+      const { findPromo } = getSheets();
+      const result = await findPromo(code);
+
+      if (!result.found) {
+        await bot.sendMessage(
+          chatId,
+          `❌ Код *${code}* не знайдено.\n\nПеревір правильність або зіграй у лотерею на сайті.`,
+          { parse_mode: 'Markdown', ...MAIN_KB }
+        );
+      } else if (result.used) {
+        await bot.sendMessage(
+          chatId,
+          `⚠️ Код *${code}* вже використано.`,
+          { parse_mode: 'Markdown', ...MAIN_KB }
+        );
+      } else {
+        await bot.sendMessage(
+          chatId,
+          `✅ Код *${code}* дійсний!\n\n🎉 Знижка: *${result.discount}*\n_${result.desc}_\n\nНазви цей код майстру при записі.`,
+          { parse_mode: 'Markdown', ...MAIN_KB }
+        );
+      }
+    } catch (err) {
+      console.error('Sheets error:', err.message);
       await bot.sendMessage(
         chatId,
-        `✅ Код *${code}* дійсний!\n\n🎉 Знижка: *${discount}*\n_${desc}_\n\nНазви цей код при записі.`,
-        { parse_mode: 'Markdown', ...MAIN_KB }
-      );
-    } else {
-      await bot.sendMessage(
-        chatId,
-        `❌ Код *${code}* не знайдено або вже використано.\n\nСпробуй ще раз або зіграй у лотерею на сайті.`,
-        { parse_mode: 'Markdown', ...MAIN_KB }
+        '⚠️ Помилка перевірки коду. Спробуй пізніше.',
+        MAIN_KB
       );
     }
     return;
