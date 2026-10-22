@@ -41,20 +41,68 @@ async function isSubscribed(userId) {
   }
 }
 
-/* ─── Subscribe prompt ─── */
-function subscribePrompt(chatId) {
+/* ─── Subscribe prompt — Rich Message with inline button ─── */
+async function subscribePrompt(chatId) {
   const channelUrl = `https://t.me/${CHANNEL.replace('@', '')}`;
-  return getBot().sendMessage(
-    chatId,
-    `👋 Щоб скористатись ботом — підпишись на наш канал:\n\n${channelUrl}\n\nПісля підписки натисни /start`,
-    {
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '📢 Підписатись', url: channelUrl },
-        ]],
-      },
-    }
-  );
+  const token = process.env.BOT_TOKEN;
+
+  try {
+    // Try Rich Message (Bot API 10.3) — button inside the message body
+    const body = {
+      chat_id: chatId,
+      blocks: [
+        {
+          type: 'paragraph',
+          text: {
+            type: 'plain',
+            text: '👋 Щоб скористатись ботом, підпишись на наш канал — це займе 5 секунд.'
+          }
+        },
+        {
+          type: 'buttons',
+          align: 'center',
+          buttons: [
+            {
+              text: { type: 'plain', text: '📢 Підписатись на канал' },
+              style: 'primary',
+              url: channelUrl
+            }
+          ]
+        },
+        {
+          type: 'paragraph',
+          text: {
+            type: 'plain',
+            text: 'Після підписки натисни /start'
+          }
+        }
+      ]
+    };
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+
+  } catch (err) {
+    // Fallback to regular message if Rich Message fails
+    console.error('sendRichMessage failed, falling back:', err.message);
+    await getBot().sendMessage(
+      chatId,
+      `👋 Щоб скористатись ботом — підпишись на наш канал:\n\n${channelUrl}\n\nПісля підписки натисни /start`,
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '📢 Підписатись', url: channelUrl }
+          ]]
+        }
+      }
+    );
+  }
 }
 
 /* ─── Main keyboard ─── */
