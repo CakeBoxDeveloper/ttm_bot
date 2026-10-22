@@ -49,10 +49,11 @@ async function subscribePrompt(chatId) {
   const html =
     `👋 Привіт! Це бот студії масажу <b>Час для себе</b>.\n\n` +
     `Для роботи бота потрібна підписка на наш канал.\n` +
-    `Статус підписки: <mark>Не підписаний</mark>\n\n` +
-    `Підпишись — і одразу отримаєш доступ до всіх функцій.\n` +
     `<tg-button-row align="center">` +
     `<tg-button type="url" style="success" url="${channelUrl}">📢 Підписатись на канал</tg-button>` +
+    `</tg-button-row>` +
+    `<tg-button-row align="center">` +
+    `<tg-button type="callback_data" style="success" data="check_sub">✅ Перевірити підписку</tg-button>` +
     `</tg-button-row>`;
 
   try {
@@ -61,13 +62,7 @@ async function subscribePrompt(chatId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        rich_message: { html },
-        // Inline button under the message to re-check subscription
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '✅ Перевірити підписку', callback_data: 'check_sub' }
-          ]]
-        }
+        rich_message: { html }
       })
     });
 
