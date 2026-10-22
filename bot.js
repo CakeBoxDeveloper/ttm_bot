@@ -41,56 +41,35 @@ async function isSubscribed(userId) {
   }
 }
 
-/* ─── Subscribe prompt — Rich Message with inline button ─── */
+/* ─── Subscribe prompt — Rich Message with inline button in text ─── */
 async function subscribePrompt(chatId) {
   const channelUrl = `https://t.me/${CHANNEL.replace('@', '')}`;
   const token = process.env.BOT_TOKEN;
 
-  try {
-    // Try Rich Message (Bot API 10.3) — button inside the message body
-    const body = {
-      chat_id: chatId,
-      blocks: [
-        {
-          type: 'paragraph',
-          text: {
-            type: 'plain',
-            text: '👋 Щоб скористатись ботом, підпишись на наш канал — це займе 5 секунд.'
-          }
-        },
-        {
-          type: 'buttons',
-          align: 'center',
-          buttons: [
-            {
-              text: { type: 'plain', text: '📢 Підписатись на канал' },
-              style: 'primary',
-              url: channelUrl
-            }
-          ]
-        },
-        {
-          type: 'paragraph',
-          text: {
-            type: 'plain',
-            text: 'Після підписки натисни /start'
-          }
-        }
-      ]
-    };
+  // Rich Message — button inline in text, Bot API 10.3 HTML format
+  const html =
+    `👋 Щоб скористатись ботом, підпишись на наш канал — це займе 5 секунд.\n` +
+    `<tg-button-row align="center">` +
+    `<tg-button type="url" style="primary" url="${channelUrl}">📢 Підписатись на канал</tg-button>` +
+    `</tg-button-row>\n` +
+    `Після підписки натисни /start`;
 
+  try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        chat_id: chatId,
+        rich_message: { html }
+      })
     });
 
     const data = await res.json();
     if (!data.ok) throw new Error(data.description);
 
   } catch (err) {
-    // Fallback to regular message if Rich Message fails
     console.error('sendRichMessage failed, falling back:', err.message);
+    // Fallback to regular message
     await getBot().sendMessage(
       chatId,
       `👋 Щоб скористатись ботом — підпишись на наш канал:\n\n${channelUrl}\n\nПісля підписки натисни /start`,
