@@ -3,45 +3,54 @@
 /**
  * TTM Massage Bot — Vercel Webhook version
  *
- * Vercel environment variables needed:
- *   BOT_TOKEN    — Telegram bot token from @BotFather
- *   CHANNEL_ID   — e.g. @pro_telo_niko (can change without redeploy)
- *   WEBHOOK_SECRET — any random string, set same in Telegram webhook setup
+ * Vercel environment variables:
+ *   BOT_TOKEN   — Telegram bot token from @BotFather
+ *   CHANNEL_ID  — e.g. @pro_telo_niko (change without redeploy)
  *
- * Deploy:
- *   1. Push this folder as a separate GitHub repo
- *   2. Import into Vercel — it auto-detects api/webhook.js
- *   3. Set env vars in Vercel dashboard
- *   4. Register webhook once:
- *      curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-vercel-url>/api/webhook&secret_token=<WEBHOOK_SECRET>"
+ * Register webhook once after deploy:
+ *   curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<project>.vercel.app/api/webhook"
  */
 
 const TelegramBot = require('node-telegram-bot-api');
 
-const TOKEN   = process.env.BOT_TOKEN;
 const CHANNEL = process.env.CHANNEL_ID || '@pro_telo_niko';
 
-const bot = new TelegramBot(TOKEN); // no polling — webhook mode
+// Lazy-init: bot created on first request, not at module load
+// This prevents crash when env vars aren't set at build time
+let _bot = null;
+function getBot() {
+  if (!_bot) {
+    const token = process.env.BOT_TOKEN;
+    if (!token) throw new Error('BOT_TOKEN is not set in Vercel environment variables');
+    _bot = new TelegramBot(token);
+  }
+  return _bot;
+}
 
 /* ─── Check subscription ─── */
 async function isSubscribed(userId) {
   try {
-    const m = await bot.getChatMember(CHANNEL, userId);
+    const m = await getBot().getChatMember(CHANNEL, userId);
     return ['member', 'administrator', 'creator'].includes(m.status);
-  } catch {
-    return true; // if bot can't check — let through
+  } catch (err) {
+    // Log error — most likely bot is not an admin of the channel
+    console.error(`isSubscribed check failed for channel ${CHANNEL}:`, err.message);
+    // Return false so users are prompted to subscribe (not true/bypassed)
+    // Change back to `return true` if you want to bypass check during development
+    return false;
   }
 }
 
 /* ─── Subscribe prompt ─── */
 function subscribePrompt(chatId) {
-  return bot.sendMessage(
+  const channelUrl = `https://t.me/${CHANNEL.replace('@', '')}`;
+  return getBot().sendMessage(
     chatId,
-    `👋 Щоб скористатись ботом — підпишись на наш канал:\n\n${CHANNEL}\n\nПісля підписки натисни /start`,
+    `👋 Щоб скористатись ботом — підпишись на наш канал:\n\n${channelUrl}\n\nПісля підписки натисни /start`,
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: '📢 Підписатись', url: `https://t.me/${CHANNEL.replace('@', '')}` },
+          { text: '📢 Підписатись', url: channelUrl },
         ]],
       },
     }
@@ -59,20 +68,19 @@ const MAIN_KB = {
   },
 };
 
-/* ─── In-memory state (resets on cold start — OK for simple bot) ─── */
+/* ─── State (resets on cold start) ─── */
 const waitingForCode = new Set();
 
 /* ─── Load discount codes ─── */
 function loadCodes() {
   try {
-    // codes.json sits next to this file
     return require('./codes.json');
   } catch {
     return {};
   }
 }
 
-/* ─── Handle update ─── */
+/* ─── Main handler ─── */
 async function handleUpdate(update) {
   const msg = update.message || update.edited_message;
   if (!msg) return;
@@ -80,12 +88,12 @@ async function handleUpdate(update) {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const text   = (msg.text || '').trim();
+  const bot    = getBot();
 
-  // /start — check subscription then greet
+  /* /start */
   if (text === '/start') {
     const ok = await isSubscribed(userId);
     if (!ok) { await subscribePrompt(chatId); return; }
-
     await bot.sendMessage(
       chatId,
       '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
@@ -94,11 +102,11 @@ async function handleUpdate(update) {
     return;
   }
 
-  // All other messages — check subscription first
+  /* All other — check subscription first */
   const ok = await isSubscribed(userId);
   if (!ok) { await subscribePrompt(chatId); return; }
 
-  // ── Check discount code button ──
+  /* Enter code check mode */
   if (text === '🎟 Перевірити код знижки') {
     waitingForCode.add(chatId);
     await bot.sendMessage(chatId, '🔑 Введи свій код зі скретч-картки:', {
@@ -110,13 +118,14 @@ async function handleUpdate(update) {
     return;
   }
 
+  /* Cancel */
   if (text === '❌ Скасувати') {
     waitingForCode.delete(chatId);
     await bot.sendMessage(chatId, '↩️ Скасовано.', MAIN_KB);
     return;
   }
 
-  // ── Code check ──
+  /* Process code */
   if (waitingForCode.has(chatId)) {
     waitingForCode.delete(chatId);
     const code  = text.toUpperCase();
@@ -139,7 +148,7 @@ async function handleUpdate(update) {
     return;
   }
 
-  // Default
+  /* Fallback */
   await bot.sendMessage(chatId, '👇 Обери дію:', MAIN_KB);
 }
 
