@@ -261,37 +261,5 @@ async function handleUpdate(update) {
   /* Fallback — show menu */
   await sendMainMenu(bot, chatId);
 }
-        await bot.sendMessage(
-          chatId,
-          `❌ Код *${code}* не знайдено.\n\nПеревір правильність або зіграй у лотерею на сайті.`,
-          { parse_mode: 'Markdown', ...MAIN_KB }
-        );
-      } else if (result.used) {
-        await bot.sendMessage(
-          chatId,
-          `⚠️ Код *${code}* вже використано.`,
-          { parse_mode: 'Markdown', ...MAIN_KB }
-        );
-      } else {
-        await bot.sendMessage(
-          chatId,
-          `✅ Код *${code}* дійсний!\n\n🎉 Знижка: *${result.discount}*\n_${result.desc}_\n\nНазви цей код майстру при записі.`,
-          { parse_mode: 'Markdown', ...MAIN_KB }
-        );
-      }
-    } catch (err) {
-      console.error('Sheets error:', err.message);
-      await bot.sendMessage(
-        chatId,
-        '⚠️ Помилка перевірки коду. Спробуй пізніше.',
-        MAIN_KB
-      );
-    }
-    return;
-  }
-
-  /* Fallback */
-  await bot.sendMessage(chatId, '👇 Обери дію:', MAIN_KB);
-}
 
 module.exports = { handleUpdate };
