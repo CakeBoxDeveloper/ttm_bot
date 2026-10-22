@@ -1,0 +1,12 @@
+{
+  "name": "ttm-massage-bot",
+  "version": "1.0.0",
+  "description": "Telegram webhook bot for Vercel — Час для себе",
+  "main": "bot.js",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
