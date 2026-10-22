@@ -50,22 +50,17 @@ async function subscribePrompt(chatId) {
     `👋 Привіт! Це бот студії масажу <b>Час для себе</b>.\n\n` +
     `Для роботи бота потрібна підписка на наш канал.\n` +
     `<tg-button-row align="center">` +
-    `<tg-button type="url" style="success" url="${channelUrl}">📢 Підписатись на канал</tg-button>` +
+    `<tg-button type="url" style="success" url="${channelUrl}">Підписатись на канал</tg-button>` +
+    `</tg-button-row>` +
+    `<tg-button-row align="center">` +
+    `<tg-button type="callback_data" style="success" data="check_sub">Перевірити підписку</tg-button>` +
     `</tg-button-row>`;
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        rich_message: { html },
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '✅ Перевірити підписку', callback_data: 'check_sub' }
-          ]]
-        }
-      })
+      body: JSON.stringify({ chat_id: chatId, rich_message: { html } })
     });
 
     const data = await res.json();
@@ -114,13 +109,37 @@ function getSheets() {
   return _sheets;
 }
 
-/* ─── Send main menu ─── */
+/* ─── Send main menu as Rich Message with colored buttons ─── */
 async function sendMainMenu(bot, chatId) {
-  await bot.sendMessage(
-    chatId,
-    '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
-    { parse_mode: 'Markdown', ...MAIN_INLINE }
-  );
+  const token = process.env.BOT_TOKEN;
+
+  const html =
+    `👋 Привіт! Я бот студії масажу <b>Час для себе</b>.\n\n` +
+    `Обери дію:\n` +
+    `<tg-button-row align="center">` +
+    `<tg-button type="callback_data" style="success" data="book">Записатись на прийом</tg-button>` +
+    `</tg-button-row>` +
+    `<tg-button-row align="center">` +
+    `<tg-button type="callback_data" style="danger" data="promo">Перевірити бонусний код</tg-button>` +
+    `</tg-button-row>`;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, rich_message: { html } })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+  } catch (err) {
+    console.error('sendRichMessage menu failed:', err.message);
+    // Fallback to plain inline keyboard
+    await bot.sendMessage(
+      chatId,
+      '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
+      { parse_mode: 'Markdown', ...MAIN_INLINE }
+    );
+  }
 }
 
 /* ─── Main handler ─── */
@@ -177,7 +196,7 @@ async function handleUpdate(update) {
         {
           reply_markup: {
             inline_keyboard: [[
-              { text: '❌ Скасувати', callback_data: 'cancel' }
+              { text: 'Скасувати', callback_data: 'cancel' }
             ]]
           }
         }
