@@ -46,13 +46,14 @@ async function subscribePrompt(chatId) {
   const channelUrl = `https://t.me/${CHANNEL.replace('@', '')}`;
   const token = process.env.BOT_TOKEN;
 
-  // Rich Message — button inline in text, Bot API 10.3 HTML format
   const html =
-    `👋 Щоб скористатись ботом, підпишись на наш канал — це займе 5 секунд.\n` +
+    `👋 Привіт! Це бот студії масажу <b>Час для себе</b>.\n\n` +
+    `Для роботи бота потрібна підписка на наш канал.\n` +
+    `Статус підписки: <mark>Не підписаний</mark>\n\n` +
+    `Підпишись — і одразу отримаєш доступ до всіх функцій.\n` +
     `<tg-button-row align="center">` +
-    `<tg-button type="url" style="primary" url="${channelUrl}">📢 Підписатись на канал</tg-button>` +
-    `</tg-button-row>\n` +
-    `Після підписки натисни /start`;
+    `<tg-button type="url" style="success" url="${channelUrl}">📢 Підписатись на канал</tg-button>` +
+    `</tg-button-row>`;
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
@@ -60,7 +61,13 @@ async function subscribePrompt(chatId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        rich_message: { html }
+        rich_message: { html },
+        // Inline button under the message to re-check subscription
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '✅ Перевірити підписку', callback_data: 'check_sub' }
+          ]]
+        }
       })
     });
 
@@ -69,14 +76,15 @@ async function subscribePrompt(chatId) {
 
   } catch (err) {
     console.error('sendRichMessage failed, falling back:', err.message);
-    // Fallback to regular message
     await getBot().sendMessage(
       chatId,
-      `👋 Щоб скористатись ботом — підпишись на наш канал:\n\n${channelUrl}\n\nПісля підписки натисни /start`,
+      `👋 Для роботи бота потрібна підписка на канал:\n\n${channelUrl}`,
       {
         reply_markup: {
           inline_keyboard: [[
             { text: '📢 Підписатись', url: channelUrl }
+          ], [
+            { text: '✅ Перевірити підписку', callback_data: 'check_sub' }
           ]]
         }
       }
@@ -109,6 +117,32 @@ function loadCodes() {
 
 /* ─── Main handler ─── */
 async function handleUpdate(update) {
+  // Handle callback query (inline button press)
+  if (update.callback_query) {
+    const cq     = update.callback_query;
+    const chatId = cq.message.chat.id;
+    const userId = cq.from.id;
+    const bot    = getBot();
+
+    if (cq.data === 'check_sub') {
+      await bot.answerCallbackQuery(cq.id); // dismiss loading spinner
+      const ok = await isSubscribed(userId);
+      if (ok) {
+        await bot.sendMessage(
+          chatId,
+          '✅ Підписку підтверджено!\n\n👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
+          { parse_mode: 'Markdown', ...MAIN_KB }
+        );
+      } else {
+        await bot.answerCallbackQuery(cq.id, {
+          text: '❌ Підписку не знайдено. Підпишись і спробуй ще раз.',
+          show_alert: true
+        });
+      }
+    }
+    return;
+  }
+
   const msg = update.message || update.edited_message;
   if (!msg) return;
 
