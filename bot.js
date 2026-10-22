@@ -92,7 +92,9 @@ async function handleUpdate(update) {
 
   /* /start */
   if (text === '/start') {
+    console.log(`[/start] userId=${userId} chatId=${chatId}`);
     const ok = await isSubscribed(userId);
+    console.log(`[/start] isSubscribed=${ok} for userId=${userId}`);
     if (!ok) { await subscribePrompt(chatId); return; }
     await bot.sendMessage(
       chatId,
@@ -103,7 +105,9 @@ async function handleUpdate(update) {
   }
 
   /* All other — check subscription first */
+  console.log(`[msg] text="${text}" userId=${userId}`);
   const ok = await isSubscribed(userId);
+  console.log(`[msg] isSubscribed=${ok} for userId=${userId}`);
   if (!ok) { await subscribePrompt(chatId); return; }
 
   /* Enter code check mode */
