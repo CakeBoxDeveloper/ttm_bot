@@ -146,8 +146,18 @@ async function sendMainMenu(bot, chatId) {
         chat_id: chatId,
         rich_message: {
           html:
+            `<img src="tg://photo?id=menu_img" />` +
             `<p>👋 Привіт! Я бот студії масажу <b>Час для себе</b>.</p>` +
-            `<p>Обери дію:</p>`
+            `<p>Обери дію:</p>`,
+          media: [
+            {
+              id: 'menu_img',
+              media: {
+                type: 'photo',
+                media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/Draw_watch_from_reference_20261023231355.jpg?raw=true'
+              }
+            }
+          ]
         },
         reply_markup: {
           inline_keyboard: [
