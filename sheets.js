@@ -11,7 +11,7 @@
 
 const SHEET_ID     = process.env.SHEET_ID;
 const CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
-const PRIVATE_KEY  = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+const PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY || '';
 
 const SHEETS_BASE  = 'https://sheets.googleapis.com/v4/spreadsheets';
 

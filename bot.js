@@ -115,7 +115,7 @@ function getSheets() {
   return _sheets;
 }
 
-const PHOTO_URL = 'https://github.com/CakeBoxDeveloper/timetome/blob/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png?raw=true';
+const PHOTO_URL = 'https://raw.githubusercontent.com/CakeBoxDeveloper/timetome/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png';
 
 /* ─── Send photo helper ─── */
 async function sendPhoto(chatId, caption) {
