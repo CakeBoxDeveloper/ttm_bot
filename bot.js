@@ -177,7 +177,7 @@ async function sendMainMenu(bot, chatId) {
         },
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'Записатись на прийом',   callback_data: 'book',  style: 'success' }],
+            [{ text: 'Записатись на прийом',   callback_data: 'book',  style: 'primary' }],
             [{ text: 'Перевірити бонусний код', callback_data: 'promo', style: 'danger'  }]
           ]
         }
@@ -225,6 +225,12 @@ async function handleUpdate(update) {
     if (!subOk) {
       await bot.answerCallbackQuery(cq.id);
       await subscribePrompt(chatId);
+      return;
+    }
+
+    /* Noop — do nothing (used for display-only colored buttons) */
+    if (cq.data === 'noop') {
+      await bot.answerCallbackQuery(cq.id);
       return;
     }
 
@@ -313,25 +319,36 @@ async function handleUpdate(update) {
         // Red — not found
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> не знайдено.</p>` +
-          `<p><b style="background-color:#c0392b;color:#ffffff;padding:2px 6px;border-radius:4px;">Перевір правильність або зіграй у лотерею на сайті.</b></p>`,
-          [[{ text: 'На головне меню', callback_data: 'menu', style: 'danger' }]]
+          `<tg-button-row align="center">` +
+          `<tg-button type="callback" style="danger" data="menu">Перевір правильність або зіграй у лотерею на сайті</tg-button>` +
+          `</tg-button-row>`,
+          []
         );
       } else if (result.used) {
         // Red — already used
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> вже використано.</p>` +
-          `<p><b style="background-color:#c0392b;color:#ffffff;padding:2px 6px;border-radius:4px;">Цей код більше не активний.</b></p>`,
-          [[{ text: 'На головне меню', callback_data: 'menu', style: 'danger' }]]
+          `<tg-button-row align="center">` +
+          `<tg-button type="callback" style="danger" data="menu">Цей код більше не активний</tg-button>` +
+          `</tg-button-row>`,
+          []
         );
       } else {
-        // Green — success: photo + caption in one message
+        // Green — success: photo + text, then rich message with green highlight + blue book button
         const bonus = result.desc + (result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : '');
         await sendPhotoWithCaption(
           chatId,
-          `Промокод <b>${code}</b> прийнято, ваша знижка:\n` +
-          `<b>${bonus}</b>\n` +
-          `Назви цей код майстру при записі.`,
-          [[{ text: 'Записатись на прийом', callback_data: 'book' }]]
+          `Промокод <b>${code}</b> прийнято, ваша знижка:\n<b>${bonus}</b>\nНазви цей код майстру при записі.`,
+          []
+        );
+        await sendRichMsg(token, chatId,
+          `<tg-button-row align="center">` +
+          `<tg-button type="callback" style="success" data="noop">${bonus}</tg-button>` +
+          `</tg-button-row>` +
+          `<tg-button-row align="center">` +
+          `<tg-button type="callback" style="primary" data="book">Записатись на прийом</tg-button>` +
+          `</tg-button-row>`,
+          []
         );
       }
     } catch (err) {
