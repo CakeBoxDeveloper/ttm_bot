@@ -55,6 +55,7 @@ async function getAccessToken() {
   });
 
   const data = await res.json();
+  console.log('[Sheets] token response:', data.access_token ? 'OK' : JSON.stringify(data));
   if (!data.access_token) throw new Error(`Google auth failed: ${JSON.stringify(data)}`);
 
   _cachedToken = data.access_token;
@@ -66,10 +67,14 @@ async function getAccessToken() {
 async function readRange(sheet, range) {
   const token = await getAccessToken();
   const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(`${sheet}!${range}`)}`;
+  console.log('[Sheets] readRange URL:', url);
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  const data = await res.json();
+  const text = await res.text();
+  console.log('[Sheets] response status:', res.status, 'body preview:', text.slice(0, 200));
+  if (!res.ok) throw new Error(`Sheets API error ${res.status}: ${text.slice(0, 200)}`);
+  const data = JSON.parse(text);
   return data.values || [];
 }
 
