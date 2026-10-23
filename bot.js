@@ -115,29 +115,6 @@ function getSheets() {
   return _sheets;
 }
 
-const PHOTO_URL = 'https://raw.githubusercontent.com/CakeBoxDeveloper/timetome/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png';
-
-/* ─── Send photo with caption ─── */
-async function sendPhotoWithCaption(chatId, captionHtml) {
-  const token = process.env.BOT_TOKEN;
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        photo: PHOTO_URL,
-        caption: captionHtml,
-        parse_mode: 'HTML',
-      })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.description);
-  } catch (err) {
-    console.error('sendPhoto failed:', err.message);
-  }
-}
-
 /* ─── Send Rich Message helper ─── */
 async function sendRichMsg(token, chatId, html, inlineButtons) {
   try {
@@ -318,7 +295,10 @@ async function handleUpdate(update) {
           `<tg-button-row align="center">` +
           `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Код не знайдено. Зіграй у лотерею на сайті</tg-button>` +
           `</tg-button-row>`,
-          []
+          [
+            [{ text: 'Повернутись до меню',     callback_data: 'menu',  style: 'success' }],
+            [{ text: 'Спробувати інший код',     callback_data: 'promo', style: 'primary' }],
+          ]
         );
       } else if (result.used) {
         await sendRichMsg(token, chatId,
@@ -326,15 +306,15 @@ async function handleUpdate(update) {
           `<tg-button-row align="center">` +
           `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Цей код більше не активний</tg-button>` +
           `</tg-button-row>`,
-          []
+          [
+            [{ text: 'Повернутись до меню',     callback_data: 'menu',  style: 'success' }],
+            [{ text: 'Спробувати інший код',     callback_data: 'promo', style: 'primary' }],
+          ]
         );
       } else {
         const bonus = result.desc + (result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : '');
-        await sendPhotoWithCaption(
-          chatId,
-          `Промокод <b>${code}</b> прийнято, ваша знижка:\n<b>${bonus}</b>\nНазви цей код майстру при записі.`
-        );
         await sendRichMsg(token, chatId,
+          `<p>Промокод <b>${code}</b> прийнято. Назви цей код майстру при записі.</p>` +
           `<tg-button-row align="center">` +
           `<tg-button type="url" style="success" url="https://t.me/${CHANNEL.replace('@', '')}">${bonus}</tg-button>` +
           `</tg-button-row>`,
