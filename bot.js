@@ -147,8 +147,7 @@ async function sendMainMenu(bot, chatId) {
         rich_message: {
           html:
             `<img src="tg://photo?id=menu_img" />` +
-            `<p>👋 Привіт! Я бот студії масажу <b>Час для себе</b>.</p>` +
-            `<p>Обери дію:</p>`,
+            `<p>ㅤ</p>`,
           media: [
             {
               id: 'menu_img',
@@ -301,24 +300,22 @@ async function handleUpdate(update) {
 
       if (!result.found) {
         await sendRichMsg(token, chatId,
-          `<p>Промокод <b>${code}</b> не знайдено.</p>` +
           `<tg-button-row align="center">` +
-          `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Код не знайдено. Зіграй у лотерею на сайті</tg-button>` +
+          `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Код ${code} не знайдено. Зіграй у лотерею на сайті</tg-button>` +
           `</tg-button-row>`,
           [
-            [{ text: 'Повернутись до меню',     callback_data: 'menu',  style: 'success' }],
-            [{ text: 'Спробувати інший код',     callback_data: 'promo', style: 'primary' }],
+            [{ text: 'Повернутись до меню',  callback_data: 'menu',  style: 'success' }],
+            [{ text: 'Спробувати інший код', callback_data: 'promo', style: 'primary' }],
           ]
         );
       } else if (result.used) {
         await sendRichMsg(token, chatId,
-          `<p>Промокод <b>${code}</b> вже використано.</p>` +
           `<tg-button-row align="center">` +
-          `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Цей код більше не активний</tg-button>` +
+          `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Код ${code} вже використано</tg-button>` +
           `</tg-button-row>`,
           [
-            [{ text: 'Повернутись до меню',     callback_data: 'menu',  style: 'success' }],
-            [{ text: 'Спробувати інший код',     callback_data: 'promo', style: 'primary' }],
+            [{ text: 'Повернутись до меню',  callback_data: 'menu',  style: 'success' }],
+            [{ text: 'Спробувати інший код', callback_data: 'promo', style: 'primary' }],
           ]
         );
       } else {
