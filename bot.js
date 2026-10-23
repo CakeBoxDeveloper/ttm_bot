@@ -168,28 +168,6 @@ async function sendMainMenu(bot, chatId) {
     );
   }
 }
-        rich_message: {
-          html: `👋 Привіт! Я бот студії масажу <b>Час для себе</b>.\n\nОбери дію:`
-        },
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Записатись на прийом',   callback_data: 'book',  style: 'success' }],
-            [{ text: 'Перевірити бонусний код', callback_data: 'promo', style: 'danger'  }]
-          ]
-        }
-      })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.description);
-  } catch (err) {
-    console.error('sendRichMessage menu failed:', err.message);
-    await bot.sendMessage(
-      chatId,
-      '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
-      { parse_mode: 'Markdown', ...MAIN_INLINE }
-    );
-  }
-}
 
 /* ─── Main handler ─── */
 async function handleUpdate(update) {
