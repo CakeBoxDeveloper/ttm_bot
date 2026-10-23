@@ -94,8 +94,8 @@ async function subscribePrompt(chatId) {
 const MAIN_INLINE = {
   reply_markup: {
     inline_keyboard: [
-      [{ text: '📅 Записатись на прийом',   callback_data: 'book'  }],
-      [{ text: '🎟 Перевірити бонусний код', callback_data: 'promo' }],
+      [{ text: 'Записатись на прийом',   callback_data: 'book'  }],
+      [{ text: 'Перевірити бонусний код', callback_data: 'promo' }],
     ]
   }
 };
@@ -117,19 +117,27 @@ function getSheets() {
 
 const PHOTO_URL = 'https://raw.githubusercontent.com/CakeBoxDeveloper/timetome/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png';
 
-/* ─── Send photo helper ─── */
-async function sendPhoto(chatId, caption) {
+/* ─── Send photo with caption and inline button ─── */
+async function sendPhotoWithCaption(chatId, captionHtml, inlineButtons) {
   const token = process.env.BOT_TOKEN;
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, photo: PHOTO_URL, caption })
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: PHOTO_URL,
+        caption: captionHtml,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: inlineButtons }
+      })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.description);
   } catch (err) {
     console.error('sendPhoto failed:', err.message);
+    // fallback — text only
+    await sendRichMsg(token, chatId, captionHtml, inlineButtons);
   }
 }
 
@@ -164,7 +172,6 @@ async function sendMainMenu(bot, chatId) {
         chat_id: chatId,
         rich_message: {
           html:
-            `<p>🎟</p>` +
             `<p>👋 Привіт! Я бот студії масажу <b>Час для себе</b>.</p>` +
             `<p>Обери дію:</p>`
         },
@@ -306,25 +313,25 @@ async function handleUpdate(update) {
         // Red — not found
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> не знайдено.</p>` +
-          `<p><mark style="color:red">Перевір правильність або зіграй у лотерею на сайті.</mark></p>`,
+          `<p><b style="background-color:#c0392b;color:#ffffff;padding:2px 6px;border-radius:4px;">Перевір правильність або зіграй у лотерею на сайті.</b></p>`,
           [[{ text: 'На головне меню', callback_data: 'menu', style: 'danger' }]]
         );
       } else if (result.used) {
         // Red — already used
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> вже використано.</p>` +
-          `<p><mark style="color:red">Цей код більше не активний.</mark></p>`,
+          `<p><b style="background-color:#c0392b;color:#ffffff;padding:2px 6px;border-radius:4px;">Цей код більше не активний.</b></p>`,
           [[{ text: 'На головне меню', callback_data: 'menu', style: 'danger' }]]
         );
       } else {
-        // Green — success
-        await sendPhoto(chatId);
+        // Green — success: photo + caption in one message
         const bonus = result.desc + (result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : '');
-        await sendRichMsg(token, chatId,
-          `<p>Промокод <b>${code}</b> прийнято, ваша знижка:</p>` +
-          `<p><mark>${bonus}</mark></p>` +
-          `<p>Назви цей код майстру при записі.</p>`,
-          [[{ text: 'Записатись на прийом', callback_data: 'book', style: 'success' }]]
+        await sendPhotoWithCaption(
+          chatId,
+          `Промокод <b>${code}</b> прийнято, ваша знижка:\n` +
+          `<b>${bonus}</b>\n` +
+          `Назви цей код майстру при записі.`,
+          [[{ text: 'Записатись на прийом', callback_data: 'book' }]]
         );
       }
     } catch (err) {
