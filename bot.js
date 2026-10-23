@@ -133,6 +133,25 @@ async function sendPhoto(chatId, caption) {
   }
 }
 
+/* ─── Send Rich Message helper ─── */
+async function sendRichMsg(token, chatId, html, inlineButtons) {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        rich_message: { html },
+        reply_markup: { inline_keyboard: inlineButtons }
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+  } catch (err) {
+    console.error('sendRichMsg failed:', err.message);
+  }
+}
+
 /* ─── Send main menu as Rich Message with colored buttons UNDER it ─── */
 async function sendMainMenu(bot, chatId) {
   const token = process.env.BOT_TOKEN;
@@ -239,6 +258,13 @@ async function handleUpdate(update) {
       return;
     }
 
+    /* Back to menu */
+    if (cq.data === 'menu') {
+      await bot.answerCallbackQuery(cq.id);
+      await sendMainMenu(bot, chatId);
+      return;
+    }
+
     await bot.answerCallbackQuery(cq.id);
     return;
   }
@@ -274,54 +300,32 @@ async function handleUpdate(update) {
       const { findPromo } = getSheets();
       const result = await findPromo(code);
 
+      const token = process.env.BOT_TOKEN;
+
       if (!result.found) {
-        await bot.sendMessage(
-          chatId,
-          `❌ Код *${code}* не знайдено.\n\nПеревір правильність або зіграй у лотерею на сайті.`,
-          { parse_mode: 'Markdown', ...MAIN_INLINE }
+        // Red — not found
+        await sendRichMsg(token, chatId,
+          `<p>Промокод <b>${code}</b> не знайдено.</p>` +
+          `<p><mark style="color:red">Перевір правильність або зіграй у лотерею на сайті.</mark></p>`,
+          [[{ text: 'На головне меню', callback_data: 'menu', style: 'danger' }]]
         );
       } else if (result.used) {
-        await bot.sendMessage(
-          chatId,
-          `⚠️ Код *${code}* вже використано.`,
-          { parse_mode: 'Markdown', ...MAIN_INLINE }
+        // Red — already used
+        await sendRichMsg(token, chatId,
+          `<p>Промокод <b>${code}</b> вже використано.</p>` +
+          `<p><mark style="color:red">Цей код більше не активний.</mark></p>`,
+          [[{ text: 'На головне меню', callback_data: 'menu', style: 'danger' }]]
         );
       } else {
-        const discountLine = result.discount && /\d/.test(result.discount)
-          ? result.discount
-          : result.desc;
-
-        const token = process.env.BOT_TOKEN;
-        const html =
-          `<img src="${PHOTO_URL}" />\n` +
+        // Green — success
+        await sendPhoto(chatId);
+        const bonus = result.desc + (result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : '');
+        await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> прийнято, ваша знижка:</p>` +
-          `<p><mark>${result.desc}${result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : ''}</mark></p>` +
-          `<p>Назви цей код майстру при записі.</p>`;
-
-        try {
-          const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              rich_message: { html },
-              reply_markup: {
-                inline_keyboard: [[
-                  { text: 'Записатись на прийом', callback_data: 'book', style: 'success' }
-                ]]
-              }
-            })
-          });
-          const data = await res.json();
-          if (!data.ok) throw new Error(data.description);
-        } catch (err) {
-          console.error('sendRichMessage promo failed:', err.message);
-          await bot.sendMessage(
-            chatId,
-            `✅ Код *${code}* дійсний!\n\n🎉 ${result.desc}\n\nНазви цей код майстру при записі.`,
-            { parse_mode: 'Markdown', ...MAIN_INLINE }
-          );
-        }
+          `<p><mark>${bonus}</mark></p>` +
+          `<p>Назви цей код майстру при записі.</p>`,
+          [[{ text: 'Записатись на прийом', callback_data: 'book', style: 'success' }]]
+        );
       }
     } catch (err) {
       console.error('Sheets error:', err.message);
