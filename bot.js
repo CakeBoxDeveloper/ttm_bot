@@ -51,16 +51,22 @@ async function subscribePrompt(chatId) {
     `Для роботи бота потрібна підписка на наш канал.\n` +
     `<tg-button-row align="center">` +
     `<tg-button type="url" style="success" url="${channelUrl}">Підписатись на канал</tg-button>` +
-    `</tg-button-row>` +
-    `<tg-button-row align="center">` +
-    `<tg-button type="callback_data" style="success" data="check_sub">Перевірити підписку</tg-button>` +
     `</tg-button-row>`;
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, rich_message: { html } })
+      body: JSON.stringify({
+        chat_id: chatId,
+        rich_message: { html },
+        // Inline keyboard UNDER message — green via style field (Bot API 10.3)
+        reply_markup: {
+          inline_keyboard: [[
+            { text: 'Перевірити підписку', callback_data: 'check_sub', style: 'success' }
+          ]]
+        }
+      })
     });
 
     const data = await res.json();
@@ -109,31 +115,31 @@ function getSheets() {
   return _sheets;
 }
 
-/* ─── Send main menu as Rich Message with colored buttons ─── */
+/* ─── Send main menu as Rich Message with colored buttons UNDER it ─── */
 async function sendMainMenu(bot, chatId) {
   const token = process.env.BOT_TOKEN;
-
-  const html =
-    `👋 Привіт! Я бот студії масажу <b>Час для себе</b>.\n\n` +
-    `Обери дію:\n` +
-    `<tg-button-row align="center">` +
-    `<tg-button type="callback_data" style="success" data="book">Записатись на прийом</tg-button>` +
-    `</tg-button-row>` +
-    `<tg-button-row align="center">` +
-    `<tg-button type="callback_data" style="danger" data="promo">Перевірити бонусний код</tg-button>` +
-    `</tg-button-row>`;
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, rich_message: { html } })
+      body: JSON.stringify({
+        chat_id: chatId,
+        rich_message: {
+          html: `👋 Привіт! Я бот студії масажу <b>Час для себе</b>.\n\nОбери дію:`
+        },
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Записатись на прийом',   callback_data: 'book',  style: 'success' }],
+            [{ text: 'Перевірити бонусний код', callback_data: 'promo', style: 'danger'  }]
+          ]
+        }
+      })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.description);
   } catch (err) {
     console.error('sendRichMessage menu failed:', err.message);
-    // Fallback to plain inline keyboard
     await bot.sendMessage(
       chatId,
       '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
