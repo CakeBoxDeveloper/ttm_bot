@@ -117,8 +117,8 @@ function getSheets() {
 
 const PHOTO_URL = 'https://raw.githubusercontent.com/CakeBoxDeveloper/timetome/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png';
 
-/* ─── Send photo with caption and inline button ─── */
-async function sendPhotoWithCaption(chatId, captionHtml, inlineButtons) {
+/* ─── Send photo with caption (no buttons — use sendRichMsg for colored buttons after) ─── */
+async function sendPhotoWithCaption(chatId, captionHtml) {
   const token = process.env.BOT_TOKEN;
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
@@ -129,15 +129,12 @@ async function sendPhotoWithCaption(chatId, captionHtml, inlineButtons) {
         photo: PHOTO_URL,
         caption: captionHtml,
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: inlineButtons }
       })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.description);
   } catch (err) {
     console.error('sendPhoto failed:', err.message);
-    // fallback — text only
-    await sendRichMsg(token, chatId, captionHtml, inlineButtons);
   }
 }
 
@@ -316,39 +313,32 @@ async function handleUpdate(update) {
       const token = process.env.BOT_TOKEN;
 
       if (!result.found) {
-        // Red — not found
+        // Red button as visual highlight + back to menu
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> не знайдено.</p>` +
-          `<tg-button-row align="center">` +
-          `<tg-button type="callback" style="danger" data="menu">Перевір правильність або зіграй у лотерею на сайті</tg-button>` +
-          `</tg-button-row>`,
-          []
+          `<p>Перевір правильність або зіграй у лотерею на сайті.</p>`,
+          [[{ text: 'Код не знайдено — повернутись', callback_data: 'menu', style: 'danger' }]]
         );
       } else if (result.used) {
-        // Red — already used
+        // Red button — already used
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> вже використано.</p>` +
-          `<tg-button-row align="center">` +
-          `<tg-button type="callback" style="danger" data="menu">Цей код більше не активний</tg-button>` +
-          `</tg-button-row>`,
-          []
+          `<p>Цей код більше не активний.</p>`,
+          [[{ text: 'Код вже використано — повернутись', callback_data: 'menu', style: 'danger' }]]
         );
       } else {
-        // Green — success: photo + text, then rich message with green highlight + blue book button
+        // Success: photo + caption, then rich message with green + blue buttons
         const bonus = result.desc + (result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : '');
         await sendPhotoWithCaption(
           chatId,
-          `Промокод <b>${code}</b> прийнято, ваша знижка:\n<b>${bonus}</b>\nНазви цей код майстру при записі.`,
-          []
+          `Промокод <b>${code}</b> прийнято, ваша знижка:\n<b>${bonus}</b>\nНазви цей код майстру при записі.`
         );
         await sendRichMsg(token, chatId,
-          `<tg-button-row align="center">` +
-          `<tg-button type="callback" style="success" data="noop">${bonus}</tg-button>` +
-          `</tg-button-row>` +
-          `<tg-button-row align="center">` +
-          `<tg-button type="callback" style="primary" data="book">Записатись на прийом</tg-button>` +
-          `</tg-button-row>`,
-          []
+          `<p>Ваша знижка:</p>`,
+          [
+            [{ text: bonus, callback_data: 'noop', style: 'success' }],
+            [{ text: 'Записатись на прийом', callback_data: 'book', style: 'primary' }]
+          ]
         );
       }
     } catch (err) {
