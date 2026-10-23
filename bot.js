@@ -137,15 +137,37 @@ async function sendPhoto(chatId, caption) {
 async function sendMainMenu(bot, chatId) {
   const token = process.env.BOT_TOKEN;
 
-  // Send photo first
-  await sendPhoto(chatId);
-
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
+        rich_message: {
+          html:
+            `<p>🎟</p>` +
+            `<p>👋 Привіт! Я бот студії масажу <b>Час для себе</b>.</p>` +
+            `<p>Обери дію:</p>`
+        },
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Записатись на прийом',   callback_data: 'book',  style: 'success' }],
+            [{ text: 'Перевірити бонусний код', callback_data: 'promo', style: 'danger'  }]
+          ]
+        }
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+  } catch (err) {
+    console.error('sendRichMessage menu failed:', err.message);
+    await bot.sendMessage(
+      chatId,
+      '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
+      { parse_mode: 'Markdown', ...MAIN_INLINE }
+    );
+  }
+}
         rich_message: {
           html: `👋 Привіт! Я бот студії масажу <b>Час для себе</b>.\n\nОбери дію:`
         },
@@ -287,16 +309,41 @@ async function handleUpdate(update) {
           { parse_mode: 'Markdown', ...MAIN_INLINE }
         );
       } else {
-        // If discount is a % value show it, otherwise show only desc
         const discountLine = result.discount && /\d/.test(result.discount)
-          ? `🎉 Знижка: *${result.discount}*\n`
-          : '';
-        await sendPhoto(chatId);
-        await bot.sendMessage(
-          chatId,
-          `✅ Код *${code}* дійсний!\n\n${discountLine}_${result.desc}_\n\nНазви цей код майстру при записі.`,
-          { parse_mode: 'Markdown', ...MAIN_INLINE }
-        );
+          ? result.discount
+          : result.desc;
+
+        const token = process.env.BOT_TOKEN;
+        const html =
+          `<img src="${PHOTO_URL}" />\n` +
+          `<p>Промокод <b>${code}</b> прийнято, ваша знижка:</p>` +
+          `<p><mark>${result.desc}${result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : ''}</mark></p>` +
+          `<p>Назви цей код майстру при записі.</p>`;
+
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              rich_message: { html },
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: 'Записатись на прийом', callback_data: 'book', style: 'success' }
+                ]]
+              }
+            })
+          });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.description);
+        } catch (err) {
+          console.error('sendRichMessage promo failed:', err.message);
+          await bot.sendMessage(
+            chatId,
+            `✅ Код *${code}* дійсний!\n\n🎉 ${result.desc}\n\nНазви цей код майстру при записі.`,
+            { parse_mode: 'Markdown', ...MAIN_INLINE }
+          );
+        }
       }
     } catch (err) {
       console.error('Sheets error:', err.message);
@@ -307,6 +354,11 @@ async function handleUpdate(update) {
 
   /* Fallback — show menu */
   await sendMainMenu(bot, chatId);
+
+  // DEV: log sticker/emoji info
+  if (msg.sticker) {
+    console.log('[Sticker]', JSON.stringify(msg.sticker));
+  }
 }
 
 module.exports = { handleUpdate };

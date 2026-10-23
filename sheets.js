@@ -72,8 +72,8 @@ async function readRange(sheet, range) {
     headers: { Authorization: `Bearer ${token}` },
   });
   const text = await res.text();
-  console.log('[Sheets] response status:', res.status, 'body preview:', text.slice(0, 200));
-  if (!res.ok) throw new Error(`Sheets API error ${res.status}: ${text.slice(0, 200)}`);
+  console.log('[Sheets] response status:', res.status, 'body preview:', text.slice(0, 500));
+  if (!res.ok) throw new Error(`Sheets API error ${res.status}: ${text.slice(0, 500)}`);
   const data = JSON.parse(text);
   return data.values || [];
 }
