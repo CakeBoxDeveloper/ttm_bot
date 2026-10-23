@@ -7,7 +7,7 @@ Telegram бот для студії масажу **Час для себе** — 
 ```
 bot-vercel/
   api/webhook.js   — Vercel serverless endpoint
-  bot.js           — логіка бота
+  bot.js           — логіка бота 
   codes.json       — таблиця знижок (редагуй вручну)
   vercel.json      — конфіг Vercel
   package.json
