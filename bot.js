@@ -115,9 +115,30 @@ function getSheets() {
   return _sheets;
 }
 
+const PHOTO_URL = 'https://github.com/CakeBoxDeveloper/timetome/blob/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png?raw=true';
+
+/* ─── Send photo helper ─── */
+async function sendPhoto(chatId, caption) {
+  const token = process.env.BOT_TOKEN;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, photo: PHOTO_URL, caption })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+  } catch (err) {
+    console.error('sendPhoto failed:', err.message);
+  }
+}
+
 /* ─── Send main menu as Rich Message with colored buttons UNDER it ─── */
 async function sendMainMenu(bot, chatId) {
   const token = process.env.BOT_TOKEN;
+
+  // Send photo first
+  await sendPhoto(chatId);
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
@@ -270,6 +291,7 @@ async function handleUpdate(update) {
         const discountLine = result.discount && /\d/.test(result.discount)
           ? `🎉 Знижка: *${result.discount}*\n`
           : '';
+        await sendPhoto(chatId);
         await bot.sendMessage(
           chatId,
           `✅ Код *${code}* дійсний!\n\n${discountLine}_${result.desc}_\n\nНазви цей код майстру при записі.`,
