@@ -117,7 +117,7 @@ function getSheets() {
 
 const PHOTO_URL = 'https://raw.githubusercontent.com/CakeBoxDeveloper/timetome/main/Wooden_hourglass_with_Yin-Yang_20261022135018-removebg-preview.png';
 
-/* ─── Send photo with caption (no buttons — use sendRichMsg for colored buttons after) ─── */
+/* ─── Send photo with caption ─── */
 async function sendPhotoWithCaption(chatId, captionHtml) {
   const token = process.env.BOT_TOKEN;
   try {
@@ -313,32 +313,32 @@ async function handleUpdate(update) {
       const token = process.env.BOT_TOKEN;
 
       if (!result.found) {
-        // Red button as visual highlight + back to menu
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> не знайдено.</p>` +
-          `<p>Перевір правильність або зіграй у лотерею на сайті.</p>`,
-          [[{ text: 'Код не знайдено — повернутись', callback_data: 'menu', style: 'danger' }]]
+          `<tg-button-row align="center">` +
+          `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Код не знайдено. Зіграй у лотерею на сайті</tg-button>` +
+          `</tg-button-row>`,
+          []
         );
       } else if (result.used) {
-        // Red button — already used
         await sendRichMsg(token, chatId,
           `<p>Промокод <b>${code}</b> вже використано.</p>` +
-          `<p>Цей код більше не активний.</p>`,
-          [[{ text: 'Код вже використано — повернутись', callback_data: 'menu', style: 'danger' }]]
+          `<tg-button-row align="center">` +
+          `<tg-button type="url" style="danger" url="https://t.me/${CHANNEL.replace('@', '')}">Цей код більше не активний</tg-button>` +
+          `</tg-button-row>`,
+          []
         );
       } else {
-        // Success: photo + caption, then rich message with green + blue buttons
         const bonus = result.desc + (result.discount && /\d/.test(result.discount) ? ' — ' + result.discount : '');
         await sendPhotoWithCaption(
           chatId,
           `Промокод <b>${code}</b> прийнято, ваша знижка:\n<b>${bonus}</b>\nНазви цей код майстру при записі.`
         );
         await sendRichMsg(token, chatId,
-          `<p>Ваша знижка:</p>`,
-          [
-            [{ text: bonus, callback_data: 'noop', style: 'success' }],
-            [{ text: 'Записатись на прийом', callback_data: 'book', style: 'primary' }]
-          ]
+          `<tg-button-row align="center">` +
+          `<tg-button type="url" style="success" url="https://t.me/${CHANNEL.replace('@', '')}">${bonus}</tg-button>` +
+          `</tg-button-row>`,
+          [[{ text: 'Записатись на прийом', callback_data: 'book', style: 'primary' }]]
         );
       }
     } catch (err) {
