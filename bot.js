@@ -153,7 +153,7 @@ async function sendMainMenu(bot, chatId) {
               id: 'menu_img',
               media: {
                 type: 'photo',
-                media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/Draw_watch_from_reference_20261023231355.jpg?raw=true'
+                media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/Slogan.png?raw=true'
               }
             }
           ]
@@ -220,11 +220,53 @@ async function handleUpdate(update) {
     /* Book appointment */
     if (cq.data === 'book') {
       await bot.answerCallbackQuery(cq.id);
-      await bot.sendMessage(
-        chatId,
-        '📅 Запис на прийом — функція скоро буде доступна.\n\nПоки що пиши нам напряму: @pro_telo_niko',
-        MAIN_INLINE
-      );
+      const token = process.env.BOT_TOKEN;
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            rich_message: {
+              html:
+                `<img src="tg://photo?id=book_img" />` +
+                `<p>⚠️ Наш датацентр наразі працює під великим навантаженням через обстріли.</p>` +
+                `<p>Але ви завжди можете записатись <b>особисто</b> — напишіть майстру напряму 👇</p>`,
+              media: [
+                {
+                  id: 'book_img',
+                  media: {
+                    type: 'photo',
+                    media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/BotQuery.png?raw=true'
+                  }
+                }
+              ]
+            },
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' }],
+                [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'primary' }]
+              ]
+            }
+          })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.description);
+      } catch (err) {
+        console.error('book sendRichMessage failed:', err.message);
+        await bot.sendMessage(
+          chatId,
+          '⚠️ Наш датацентр наразі під великим навантаженням через обстріли.\n\nАле можна записатись особисто — напишіть майстру: @Olga_Dind',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind' }],
+                [{ text: '🔙 Повернутись до меню', callback_data: 'menu' }]
+              ]
+            }
+          }
+        );
+      }
       return;
     }
 
