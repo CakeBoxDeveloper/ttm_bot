@@ -209,7 +209,10 @@ async function getDateColMap() {
   const map = {};
   for (let i = 1; i < header.length; i++) {
     const val = header[i];
-    if (val) map[val.trim()] = i + 1;  // 1-based col index
+    if (!val) continue;
+    // Header cell may contain "Сб\n01.11.2026" — extract just the date part
+    const dateMatch = val.trim().match(/(\d{2}\.\d{2}\.\d{4})/);
+    if (dateMatch) map[dateMatch[1]] = i + 1;  // 1-based col index
   }
 
   _colCache = map;

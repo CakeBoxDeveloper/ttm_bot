@@ -75,7 +75,7 @@ def main():
     # Date headers
     for col_idx, dt in enumerate(dates, start=2):
         is_weekend = dt.weekday() >= 5
-        label = f"{DAY_NAMES[dt.weekday()]}\n{dt.strftime('%d.%m')}"
+        label = f"{DAY_NAMES[dt.weekday()]}\n{dt.strftime('%d.%m.%Y')}"
         c = ws.cell(row=1, column=col_idx, value=label)
         c.font      = HEADER_FONT
         c.fill      = WEEKEND_FILL if is_weekend else HEADER_FILL
