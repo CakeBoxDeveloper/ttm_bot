@@ -6,12 +6,14 @@
  * Vercel env vars needed:
  *   GOOGLE_CLIENT_EMAIL  — service account email
  *   GOOGLE_PRIVATE_KEY   — service account private key (with \n as newlines)
- *   SHEET_ID             — Google Spreadsheet ID from URL
+ *   SHEET_ID             — Google Spreadsheet ID (promo codes table)
+ *   SCHEDULE_SHEET_ID    — Google Spreadsheet ID (schedule/booking table)
  */
 
-const SHEET_ID     = process.env.SHEET_ID;
-const CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
-const PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY || '';
+const SHEET_ID          = process.env.SHEET_ID;
+const SCHEDULE_SHEET_ID = process.env.SCHEDULE_SHEET_ID || process.env.SHEET_ID;
+const CLIENT_EMAIL      = process.env.GOOGLE_CLIENT_EMAIL;
+const PRIVATE_KEY       = process.env.GOOGLE_PRIVATE_KEY || '';
 
 const SHEETS_BASE  = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -65,8 +67,16 @@ async function getAccessToken() {
 
 /* ─── Read sheet range ─── */
 async function readRange(sheet, range) {
+  return _readRange(SHEET_ID, sheet, range);
+}
+
+async function readRangeSchedule(sheet, range) {
+  return _readRange(SCHEDULE_SHEET_ID, sheet, range);
+}
+
+async function _readRange(spreadsheetId, sheet, range) {
   const token = await getAccessToken();
-  const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(`${sheet}!${range}`)}`;
+  const url = `${SHEETS_BASE}/${spreadsheetId}/values/${encodeURIComponent(`${sheet}!${range}`)}`;
   console.log('[Sheets] readRange URL:', url);
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -80,8 +90,16 @@ async function readRange(sheet, range) {
 
 /* ─── Update single cell ─── */
 async function updateCell(sheet, cell, value) {
+  return _updateCell(SHEET_ID, sheet, cell, value);
+}
+
+async function updateCellSchedule(sheet, cell, value) {
+  return _updateCell(SCHEDULE_SHEET_ID, sheet, cell, value);
+}
+
+async function _updateCell(spreadsheetId, sheet, cell, value) {
   const token = await getAccessToken();
-  const url = `${SHEETS_BASE}/${SHEET_ID}/values/${encodeURIComponent(`${sheet}!${cell}`)}?valueInputOption=RAW`;
+  const url = `${SHEETS_BASE}/${spreadsheetId}/values/${encodeURIComponent(`${sheet}!${cell}`)}?valueInputOption=RAW`;
   await fetch(url, {
     method: 'PUT',
     headers: {
@@ -182,7 +200,7 @@ function parseSheetDate(str) {
  */
 async function findDateRow(dateStr) {
   // Read all dates from column A (skip header row 1)
-  const rows = await readRange(BOOKING_SHEET, 'A2:A2000');
+  const rows = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === dateStr) return i + 2; // +2: header + 0-index
   }
@@ -195,13 +213,13 @@ async function findDateRow(dateStr) {
  */
 async function getAvailableHours(dateStr) {
   const row = await findDateRow(dateStr);
-  if (!row) return [];   // date not in sheet
+  if (!row) return [];
 
-  const firstColLetter = hourToColLetter(FIRST_HOUR);   // B
-  const lastColLetter  = hourToColLetter(LAST_HOUR);    // N (or whatever)
+  const firstColLetter = hourToColLetter(FIRST_HOUR);
+  const lastColLetter  = hourToColLetter(LAST_HOUR);
   const range = `${firstColLetter}${row}:${lastColLetter}${row}`;
 
-  const rows = await readRange(BOOKING_SHEET, range);
+  const rows = await readRangeSchedule(BOOKING_SHEET, range);
   const values = rows[0] || [];
 
   const available = [];
@@ -232,7 +250,7 @@ async function bookSlot(dateStr, hour, name, username, phone) {
   const cell      = `${colLetter}${row}`;
 
   // Read current value first — prevent double-booking
-  const current = await readRange(BOOKING_SHEET, `${cell}:${cell}`);
+  const current = await readRangeSchedule(BOOKING_SHEET, `${cell}:${cell}`);
   const existing = (current[0] && current[0][0]) ? current[0][0].trim() : '';
   if (existing !== '') return 'taken';
 
@@ -242,7 +260,7 @@ async function bookSlot(dateStr, hour, name, username, phone) {
   if (phone)    parts.push(phone);
   const value = parts.join(' | ');
 
-  await updateCell(BOOKING_SHEET, cell, value);
+  await updateCellSchedule(BOOKING_SHEET, cell, value);
   return 'ok';
 }
 
@@ -254,7 +272,7 @@ async function cancelSlot(dateStr, hour) {
   const row = await findDateRow(dateStr);
   if (!row) return 'not_found';
   const colLetter = hourToColLetter(hour);
-  await updateCell(BOOKING_SHEET, `${colLetter}${row}`, '');
+  await updateCellSchedule(BOOKING_SHEET, `${colLetter}${row}`, '');
   return 'ok';
 }
 
@@ -266,8 +284,7 @@ async function getNextAvailableDates(limit = 14) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Read all dates column
-  const rows = await readRange(BOOKING_SHEET, 'A2:A2000');
+  const rows = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
   const result = [];
 
   for (let i = 0; i < rows.length && result.length < limit; i++) {
