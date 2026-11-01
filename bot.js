@@ -16,12 +16,7 @@
 
 const TelegramBot = require('node-telegram-bot-api');
 
-const CHANNEL    = process.env.CHANNEL_ID || '@pro_telo_niko';
-// Admin user IDs who can use /shed — set ADMIN_IDS env var as comma-separated list
-// e.g. "123456789,987654321"
-const ADMIN_IDS  = new Set(
-  (process.env.ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean).map(Number)
-);
+const CHANNEL = process.env.CHANNEL_ID || '@pro_telo_niko';
 
 // Lazy-init bot — prevents crash when env vars aren't set at build time
 let _bot = null;
@@ -587,12 +582,8 @@ async function handleUpdate(update) {
     return;
   }
 
-  /* /shed — toggle online booking (admin only) */
+  /* /shed — toggle online booking */
   if (text === '/shed') {
-    if (!ADMIN_IDS.has(userId)) {
-      await bot.sendMessage(chatId, '⛔ Немає доступу.');
-      return;
-    }
     try {
       const { getScheduleEnabled, setScheduleEnabled } = getSheets();
       const current = await getScheduleEnabled();
