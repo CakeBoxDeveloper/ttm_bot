@@ -419,9 +419,11 @@ async function handleUpdate(update) {
         : null;
 
       const keyboard = [
-        [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' }],
-        ...(onlineBtn ? [onlineBtn] : []),
-        [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'secondary' }]
+        [
+          { text: 'Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' },
+          ...(onlineBtn ? [{ text: 'Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' }, style: 'success' }] : [])
+        ],
+        [{ text: 'Повернутись до меню', callback_data: 'menu', style: 'primary' }]
       ];
 
       try {
@@ -452,9 +454,11 @@ async function handleUpdate(update) {
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind' }],
-                ...(scheduleEnabled ? [[{ text: '📅 Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' } }]] : []),
-                [{ text: '🔙 Повернутись до меню', callback_data: 'menu' }]
+                [
+                  { text: 'Записатись до Ольги', url: 'https://t.me/Olga_Dind' },
+                  ...(scheduleEnabled ? [{ text: 'Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' } }] : [])
+                ],
+                [{ text: 'Повернутись до меню', callback_data: 'menu' }]
               ]
             }
           }
