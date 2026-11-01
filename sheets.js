@@ -100,7 +100,8 @@ async function updateCellSchedule(sheet, cell, value) {
 async function _updateCell(spreadsheetId, sheet, cell, value) {
   const token = await getAccessToken();
   const url = `${SHEETS_BASE}/${spreadsheetId}/values/${encodeURIComponent(`${sheet}!${cell}`)}?valueInputOption=RAW`;
-  await fetch(url, {
+  console.log('[Sheets] updateCell URL:', url, '| value:', value);
+  const res = await fetch(url, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -108,6 +109,9 @@ async function _updateCell(spreadsheetId, sheet, cell, value) {
     },
     body: JSON.stringify({ values: [[value]] }),
   });
+  const text = await res.text();
+  console.log('[Sheets] updateCell status:', res.status, 'body:', text.slice(0, 300));
+  if (!res.ok) throw new Error(`Sheets write error ${res.status}: ${text.slice(0, 300)}`);
 }
 
 /* ══════════════════════════════════════
@@ -199,11 +203,15 @@ function parseSheetDate(str) {
  * Returns row number (1-based) or null if not found.
  */
 async function findDateRow(dateStr) {
-  // Read all dates from column A (skip header row 1)
   const rows = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
+  console.log(`[Sheets] findDateRow: looking for "${dateStr}", total rows read: ${rows.length}`);
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i][0] === dateStr) return i + 2; // +2: header + 0-index
+    if (rows[i][0] === dateStr) {
+      console.log(`[Sheets] findDateRow: found at sheet row ${i + 2}`);
+      return i + 2;
+    }
   }
+  console.log(`[Sheets] findDateRow: "${dateStr}" NOT FOUND`);
   return null;
 }
 
@@ -277,7 +285,57 @@ async function cancelSlot(dateStr, hour) {
 }
 
 /**
- * Get a page of dates with their availability status — one API call.
+ * Get all slots for a full month — one API call.
+ * @param {string} month "YYYY-MM"
+ * @returns {{ [dateStr]: { slots: [{hour, free}] } }}
+ */
+async function getMonthSlots(month) {
+  // month = "2026-11"
+  const [yyyy, mm] = month.split('-').map(Number);
+
+  const firstColLetter = hourToColLetter(FIRST_HOUR);  // B
+  const lastColLetter  = hourToColLetter(LAST_HOUR);   // N
+
+  // Read entire sheet date column to find row range for this month
+  const allDates = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
+
+  // Find first and last row for the month
+  let firstRow = null, lastRow = null;
+  for (let i = 0; i < allDates.length; i++) {
+    const ds = allDates[i][0];
+    if (!ds) continue;
+    const parts = ds.split('.');
+    const rowYYYY = Number(parts[2]);
+    const rowMM   = Number(parts[1]);
+    if (rowYYYY === yyyy && rowMM === mm) {
+      if (firstRow === null) firstRow = i + 2;
+      lastRow = i + 2;
+    }
+  }
+
+  if (firstRow === null) return {};
+
+  // Read all slots for the month in one request
+  const range = `A${firstRow}:${lastColLetter}${lastRow}`;
+  const rows  = await readRangeSchedule(BOOKING_SHEET, range);
+
+  const result = {};
+  for (const row of rows) {
+    const dateStr = row[0];
+    if (!dateStr) continue;
+    const slots = [];
+    for (let i = 0; i <= LAST_HOUR - FIRST_HOUR; i++) {
+      slots.push({
+        hour: FIRST_HOUR + i,
+        free: !row[i + 1] || row[i + 1].trim() === '',
+      });
+    }
+    result[dateStr] = { slots };
+  }
+  return result;
+}
+
+
  * Returns array of { dateStr, hasFree: bool }
  * @param {number} offset  how many future dates to skip
  * @param {number} count   how many dates to return
@@ -349,5 +407,6 @@ module.exports = {
   bookSlot,
   cancelSlot,
   getDatePage,
+  getMonthSlots,
   formatDate,
 };

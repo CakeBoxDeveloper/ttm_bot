@@ -1,9 +1,10 @@
 {
   "version": 2,
   "routes": [
-    {
-      "src": "/api/webhook",
-      "dest": "/api/webhook.js"
-    }
+    { "src": "/api/webhook",  "dest": "/api/webhook.js"  },
+    { "src": "/api/schedule", "dest": "/api/schedule.js" },
+    { "src": "/api/book",     "dest": "/api/book.js"     },
+    { "src": "/book",         "dest": "/public/book.html" },
+    { "src": "/(.*)",         "dest": "/public/$1"        }
   ]
 }

@@ -429,7 +429,7 @@ async function handleUpdate(update) {
             reply_markup: {
               inline_keyboard: [
                 [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' }],
-                [{ text: '📅 Записатись через бот', callback_data: 'book_online', style: 'primary' }],
+                [{ text: '📅 Онлайн-запис', url: `https://${process.env.VERCEL_URL || process.env.APP_URL}/book`, style: 'primary' }],
                 [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'secondary' }]
               ]
             }
@@ -445,7 +445,7 @@ async function handleUpdate(update) {
             reply_markup: {
               inline_keyboard: [
                 [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind' }],
-                [{ text: '📅 Записатись через бот', callback_data: 'book_online' }],
+                [{ text: '📅 Онлайн-запис', url: `https://${process.env.APP_URL || 'ttmbot.vercel.app'}/book` }],
                 [{ text: '🔙 Повернутись до меню', callback_data: 'menu' }]
               ]
             }
