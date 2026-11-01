@@ -335,7 +335,7 @@ async function getMonthSlots(month) {
   return result;
 }
 
-
+/**
  * Returns array of { dateStr, hasFree: bool }
  * @param {number} offset  how many future dates to skip
  * @param {number} count   how many dates to return
