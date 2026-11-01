@@ -128,7 +128,7 @@
 <h2>💆 Час для себе</h2>
 <p class="subtitle">Запис на масаж</p>
 
-<div class="steps">
+<div class="steps" style="display:none">
   <div class="step active" id="s1">1</div>
   <div class="step" id="s2">2</div>
   <div class="step" id="s3">3</div>
@@ -188,6 +188,11 @@ function pad(n) { return String(n).padStart(2,'0'); }
 function toDateStr(y,m,d) { return `${pad(d)}.${pad(m+1)}.${y}`; }
 function monthKey(y,m) { return `${y}-${pad(m+1)}`; }
 
+// Default slots 9:00–21:00 all free (used when API unavailable)
+function makeDefaultSlots() {
+  return Array.from({length: 13}, (_, i) => ({ hour: 9 + i, free: true }));
+}
+
 async function fetchMonth(y,m) {
   const key = monthKey(y,m);
   if (state.cache[key]) return state.cache[key];
@@ -239,14 +244,28 @@ async function renderCalendar() {
     cells.forEach(({ cell, dateStr, isPast }) => {
       if (isPast) return;
       const info = dates[dateStr];
-      if (!info) { cell.className = 'cal-day past'; return; }
+      if (!info) {
+        // date not in sheet — show as free anyway so user can still tap
+        cell.className = 'cal-day free';
+        cell.addEventListener('click', () => selectDate(dateStr, makeDefaultSlots()));
+        return;
+      }
       const hasFree = info.slots.some(s => s.free);
       cell.className = 'cal-day ' + (hasFree ? 'free' : 'full');
       if (!hasFree) cell.querySelector('.dot')?.remove();
-      if (hasFree) cell.addEventListener('click', () => selectDate(dateStr, info.slots));
+      cell.addEventListener('click', () => {
+        if (hasFree) selectDate(dateStr, info.slots);
+      });
     });
   } catch(e) {
-    cells.forEach(({ cell, isPast }) => { if (!isPast) cell.className = 'cal-day free'; });
+    console.error('fetchMonth error:', e);
+    // API error — show all future days as free so UI is usable
+    cells.forEach(({ cell, dateStr, isPast }) => {
+      if (!isPast) {
+        cell.className = 'cal-day free';
+        cell.addEventListener('click', () => selectDate(dateStr, makeDefaultSlots()));
+      }
+    });
   }
   const now = new Date();
   document.getElementById('prev-month').disabled =
