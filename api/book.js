@@ -32,7 +32,9 @@ module.exports = async (req, res) => {
 
   try {
     const { bookSlot } = require('../sheets');
+    console.log(`[/api/book] booking: date="${date}" hour=${hour} name="${name}" userId=${userId}`);
     const result = await bookSlot(date, Number(hour), name, '', phone || '');
+    console.log(`[/api/book] bookSlot result: ${result}`);
 
     if (result === 'ok') {
       // Send confirmation back into Telegram chat

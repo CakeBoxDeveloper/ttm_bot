@@ -154,41 +154,32 @@ async function markPromoUsed(rowIndex) {
 /* ══════════════════════════════════════
    SCHEDULE / BOOKING  (sheet: schedule)
 
-   Row 1 = header:  Дата | 09:00 | 10:00 | … | 21:00
-   Row 2+ = one row per calendar day (01.01.2025 – 31.12.2027)
-   Col A = date string "DD.MM.YYYY"
-   Col B+ = hour slots (empty = free, text = booked)
-
-   Booked cell value:  "Name | @username | phone"
+   NEW STRUCTURE (transposed):
+   Row 1    = header: "Час" | "01.11.2026" | "02.11.2026" | ...
+   Col A    = time slots: "09:00", "10:00", ... "21:00"
+   Col B+   = one column per date
+   Cell     = empty → free, text → booked ("Name | @user | phone")
 ══════════════════════════════════════ */
 
 const BOOKING_SHEET = 'schedule';
-const FIRST_HOUR    = 9;    // 09:00
-const LAST_HOUR     = 21;   // 21:00
+const FIRST_HOUR    = 9;
+const LAST_HOUR     = 21;
+const TOTAL_HOURS   = LAST_HOUR - FIRST_HOUR + 1;  // 13
 
-/** Column index (1-based) for a given hour (9→2, 10→3, … 21→14) */
-function hourToCol(hour) { return hour - FIRST_HOUR + 2; }
-
-/** Column letter for a given hour */
-function hourToColLetter(hour) {
-  const col = hourToCol(hour);
-  // A=1, B=2 … Z=26, AA=27 …
-  let letter = '';
-  let n = col;
+/** Convert number to column letter (1=A, 2=B, 27=AA …) */
+function colLetter(n) {
+  let s = '';
   while (n > 0) {
-    const rem = (n - 1) % 26;
-    letter = String.fromCharCode(65 + rem) + letter;
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
     n = Math.floor((n - 1) / 26);
   }
-  return letter;
+  return s;
 }
 
-/** Format a JS Date as "DD.MM.YYYY" matching the sheet */
+/** Format JS Date → "DD.MM.YYYY" */
 function formatDate(d) {
-  const dd   = String(d.getDate()).padStart(2, '0');
-  const mm   = String(d.getMonth() + 1).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  return `${dd}.${mm}.${yyyy}`;
+  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
 }
 
 /** Parse "DD.MM.YYYY" → JS Date */
@@ -197,209 +188,226 @@ function parseSheetDate(str) {
   return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
 }
 
+/** Row number for a given hour (9→2, 10→3, … 21→14) */
+function hourToRow(hour) { return hour - FIRST_HOUR + 2; }
+
 /**
- * Find the sheet row number for a given date string "DD.MM.YYYY".
- * Reads column A (dates) and searches by value.
- * Returns row number (1-based) or null if not found.
+ * Read header row to build a map: dateStr → column index (1-based).
+ * Caches result in module scope (resets on cold start).
  */
-async function findDateRow(dateStr) {
-  const rows = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
-  console.log(`[Sheets] findDateRow: looking for "${dateStr}", total rows read: ${rows.length}`);
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i][0] === dateStr) {
-      console.log(`[Sheets] findDateRow: found at sheet row ${i + 2}`);
-      return i + 2;
-    }
+let _colCache = null;
+let _colCacheTime = 0;
+
+async function getDateColMap() {
+  // Cache for 5 minutes
+  if (_colCache && Date.now() - _colCacheTime < 5 * 60 * 1000) return _colCache;
+
+  // Read row 1 — up to 2000 columns
+  const rows = await readRangeSchedule(BOOKING_SHEET, '1:1');
+  const header = rows[0] || [];
+
+  const map = {};
+  for (let i = 1; i < header.length; i++) {
+    const val = header[i];
+    if (val) map[val.trim()] = i + 1;  // 1-based col index
   }
-  console.log(`[Sheets] findDateRow: "${dateStr}" NOT FOUND`);
-  return null;
+
+  _colCache = map;
+  _colCacheTime = Date.now();
+  console.log(`[Sheets] dateColMap loaded: ${Object.keys(map).length} dates`);
+  return map;
+}
+
+/** Invalidate column cache after write */
+function invalidateColCache() {
+  _colCache = null;
 }
 
 /**
- * Get available (free) hours for a given date.
- * Returns array of hour numbers, e.g. [9, 10, 13, 14].
+ * Find column index for a date string "DD.MM.YYYY".
+ * Returns 1-based column number or null.
  */
-async function getAvailableHours(dateStr) {
-  const row = await findDateRow(dateStr);
-  if (!row) return [];
+async function findDateCol(dateStr) {
+  const map = await getDateColMap();
+  const col = map[dateStr];
+  if (!col) console.log(`[Sheets] findDateCol: "${dateStr}" NOT FOUND in header`);
+  else console.log(`[Sheets] findDateCol: "${dateStr}" → col ${col} (${colLetter(col)})`);
+  return col || null;
+}
 
-  const firstColLetter = hourToColLetter(FIRST_HOUR);
-  const lastColLetter  = hourToColLetter(LAST_HOUR);
-  const range = `${firstColLetter}${row}:${lastColLetter}${row}`;
+/**
+ * Get all hour slots for a date — single cell read.
+ * Returns array of { hour, free: bool }
+ */
+async function getHourSlots(dateStr) {
+  const col = await findDateCol(dateStr);
+  if (!col) return [];
 
-  const rows = await readRangeSchedule(BOOKING_SHEET, range);
-  const values = rows[0] || [];
+  const colL    = colLetter(col);
+  const firstR  = hourToRow(FIRST_HOUR);
+  const lastR   = hourToRow(LAST_HOUR);
+  const rows    = await readRangeSchedule(BOOKING_SHEET, `${colL}${firstR}:${colL}${lastR}`);
 
-  const available = [];
-  for (let i = 0; i <= LAST_HOUR - FIRST_HOUR; i++) {
-    const hour = FIRST_HOUR + i;
-    const cell = values[i];
-    if (!cell || cell.trim() === '') {
-      available.push(hour);
-    }
+  const result = [];
+  for (let i = 0; i < TOTAL_HOURS; i++) {
+    const val = rows[i] ? rows[i][0] : '';
+    result.push({ hour: FIRST_HOUR + i, free: !val || val.trim() === '' });
   }
-  return available;
+  return result;
+}
+
+/**
+ * Get all slots for a full month — two API calls (header + data block).
+ * Returns { "DD.MM.YYYY": { slots: [{hour, free}] } }
+ */
+async function getMonthSlots(month) {
+  const [yyyy, mm] = month.split('-').map(Number);
+  const map = await getDateColMap();
+
+  // Find columns that belong to this month
+  const monthDates = Object.keys(map).filter(ds => {
+    const parts = ds.split('.');
+    return Number(parts[2]) === yyyy && Number(parts[1]) === mm;
+  });
+
+  if (monthDates.length === 0) return {};
+
+  // Find min/max column
+  const cols = monthDates.map(ds => map[ds]);
+  const minCol = Math.min(...cols);
+  const maxCol = Math.max(...cols);
+
+  const firstR = hourToRow(FIRST_HOUR);
+  const lastR  = hourToRow(LAST_HOUR);
+
+  // One read: entire block A:firstR to maxCol:lastR
+  const rows = await readRangeSchedule(
+    BOOKING_SHEET,
+    `${colLetter(minCol)}${firstR}:${colLetter(maxCol)}${lastR}`
+  );
+
+  const result = {};
+  for (const ds of monthDates) {
+    const colOffset = map[ds] - minCol;  // 0-based within our read block
+    const slots = [];
+    for (let i = 0; i < TOTAL_HOURS; i++) {
+      const val = rows[i] ? rows[i][colOffset] : '';
+      slots.push({ hour: FIRST_HOUR + i, free: !val || val.trim() === '' });
+    }
+    result[ds] = { slots };
+  }
+  return result;
 }
 
 /**
  * Book a slot.
- * @param {string} dateStr   "DD.MM.YYYY"
- * @param {number} hour      e.g. 14
- * @param {string} name      client name
- * @param {string} username  Telegram @username (may be empty)
- * @param {string} phone     phone number (may be empty)
  * @returns {'ok'|'taken'|'not_found'}
  */
 async function bookSlot(dateStr, hour, name, username, phone) {
-  const row = await findDateRow(dateStr);
-  if (!row) return 'not_found';
+  const col = await findDateCol(dateStr);
+  if (!col) return 'not_found';
 
-  const colLetter = hourToColLetter(hour);
-  const cell      = `${colLetter}${row}`;
+  const colL = colLetter(col);
+  const row  = hourToRow(hour);
+  const cell = `${colL}${row}`;
 
-  // Read current value first — prevent double-booking
-  const current = await readRangeSchedule(BOOKING_SHEET, `${cell}:${cell}`);
-  const existing = (current[0] && current[0][0]) ? current[0][0].trim() : '';
+  // Check current value
+  const current  = await readRangeSchedule(BOOKING_SHEET, `${cell}:${cell}`);
+  const existing = current[0] && current[0][0] ? current[0][0].trim() : '';
   if (existing !== '') return 'taken';
 
-  // Write booking
+  // Build booking string
   const parts = [name];
   if (username) parts.push(username.startsWith('@') ? username : `@${username}`);
   if (phone)    parts.push(phone);
-  const value = parts.join(' | ');
 
-  await updateCellSchedule(BOOKING_SHEET, cell, value);
+  await updateCellSchedule(BOOKING_SHEET, cell, parts.join(' | '));
+  invalidateColCache();
   return 'ok';
 }
 
 /**
- * Cancel a booking (clear the cell).
- * Only the cell owner or admin should call this.
+ * Cancel a booking.
  */
 async function cancelSlot(dateStr, hour) {
-  const row = await findDateRow(dateStr);
-  if (!row) return 'not_found';
-  const colLetter = hourToColLetter(hour);
-  await updateCellSchedule(BOOKING_SHEET, `${colLetter}${row}`, '');
+  const col = await findDateCol(dateStr);
+  if (!col) return 'not_found';
+  await updateCellSchedule(BOOKING_SHEET, `${colLetter(col)}${hourToRow(hour)}`, '');
+  invalidateColCache();
   return 'ok';
 }
 
 /**
- * Get all slots for a full month — one API call.
- * @param {string} month "YYYY-MM"
- * @returns {{ [dateStr]: { slots: [{hour, free}] } }}
- */
-async function getMonthSlots(month) {
-  // month = "2026-11"
-  const [yyyy, mm] = month.split('-').map(Number);
-
-  const firstColLetter = hourToColLetter(FIRST_HOUR);  // B
-  const lastColLetter  = hourToColLetter(LAST_HOUR);   // N
-
-  // Read entire sheet date column to find row range for this month
-  const allDates = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
-
-  // Find first and last row for the month
-  let firstRow = null, lastRow = null;
-  for (let i = 0; i < allDates.length; i++) {
-    const ds = allDates[i][0];
-    if (!ds) continue;
-    const parts = ds.split('.');
-    const rowYYYY = Number(parts[2]);
-    const rowMM   = Number(parts[1]);
-    if (rowYYYY === yyyy && rowMM === mm) {
-      if (firstRow === null) firstRow = i + 2;
-      lastRow = i + 2;
-    }
-  }
-
-  if (firstRow === null) return {};
-
-  // Read all slots for the month in one request
-  const range = `A${firstRow}:${lastColLetter}${lastRow}`;
-  const rows  = await readRangeSchedule(BOOKING_SHEET, range);
-
-  const result = {};
-  for (const row of rows) {
-    const dateStr = row[0];
-    if (!dateStr) continue;
-    const slots = [];
-    for (let i = 0; i <= LAST_HOUR - FIRST_HOUR; i++) {
-      slots.push({
-        hour: FIRST_HOUR + i,
-        free: !row[i + 1] || row[i + 1].trim() === '',
-      });
-    }
-    result[dateStr] = { slots };
-  }
-  return result;
-}
-
-/**
- * Returns array of { dateStr, hasFree: bool }
- * @param {number} offset  how many future dates to skip
- * @param {number} count   how many dates to return
+ * Get paginated date list with free/full status — one API call.
  */
 async function getDatePage(offset = 0, count = 12) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const map   = await getDateColMap();
 
-  // Read all dates + all hour slots in one request: A2:N2000
-  const firstColLetter = hourToColLetter(FIRST_HOUR);   // B
-  const lastColLetter  = hourToColLetter(LAST_HOUR);    // N
-  const rows = await readRangeSchedule(BOOKING_SHEET, `A2:${lastColLetter}2000`);
+  const future = Object.keys(map)
+    .filter(ds => parseSheetDate(ds) >= today)
+    .sort((a, b) => parseSheetDate(a) - parseSheetDate(b));
 
-  const future = [];
-  for (const row of rows) {
-    const dateStr = row[0];
-    if (!dateStr) continue;
-    const d = parseSheetDate(dateStr);
-    if (d < today) continue;
-    future.push(row);
-  }
-
-  const page = future.slice(offset, offset + count);
+  const page  = future.slice(offset, offset + count);
   const total = future.length;
+  if (page.length === 0) return { dates: [], total, offset };
 
-  return {
-    dates: page.map(row => {
-      const dateStr = row[0];
-      // slots are columns B..N = indices 1..13
-      const slots = row.slice(1);
-      const hasFree = slots.length < (LAST_HOUR - FIRST_HOUR + 1) ||
-                      slots.some(v => !v || v.trim() === '');
-      return { dateStr, hasFree };
-    }),
-    total,
-    offset,
-  };
+  // Read all hour rows for these columns in one call
+  const cols   = page.map(ds => map[ds]);
+  const minCol = Math.min(...cols);
+  const maxCol = Math.max(...cols);
+  const firstR = hourToRow(FIRST_HOUR);
+  const lastR  = hourToRow(LAST_HOUR);
+
+  const rows = await readRangeSchedule(
+    BOOKING_SHEET,
+    `${colLetter(minCol)}${firstR}:${colLetter(maxCol)}${lastR}`
+  );
+
+  const dates = page.map(ds => {
+    const colOffset = map[ds] - minCol;
+    const hasFree   = rows.some(row => {
+      const val = row ? row[colOffset] : '';
+      return !val || val.trim() === '';
+    });
+    return { dateStr: ds, hasFree };
+  });
+
+  return { dates, total, offset };
 }
 
 /**
- * Get all hour slots for a date with their status — one API call.
- * Returns array of { hour, free: bool }
+ * Get available hours for a date (legacy helper).
  */
-async function getHourSlots(dateStr) {
-  const row = await findDateRow(dateStr);
-  if (!row) return [];
-
-  const firstColLetter = hourToColLetter(FIRST_HOUR);
-  const lastColLetter  = hourToColLetter(LAST_HOUR);
-  const rows = await readRangeSchedule(BOOKING_SHEET, `${firstColLetter}${row}:${lastColLetter}${row}`);
-  const values = rows[0] || [];
-
-  const result = [];
-  for (let i = 0; i <= LAST_HOUR - FIRST_HOUR; i++) {
-    result.push({
-      hour: FIRST_HOUR + i,
-      free: !values[i] || values[i].trim() === '',
-    });
-  }
-  return result;
+async function getAvailableHours(dateStr) {
+  const slots = await getHourSlots(dateStr);
+  return slots.filter(s => s.free).map(s => s.hour);
 }
 
 
-module.exports = {
+/* ══════════════════════════════════════
+   SETTINGS  (sheet: settings, cell A1)
+   Value: "1" = online booking enabled, "0" = disabled
+══════════════════════════════════════ */
+
+async function getScheduleEnabled() {
+  try {
+    // Uses main SHEET_ID — settings live in promo spreadsheet
+    const rows = await readRange('settings', 'A1');
+    const val  = rows[0] && rows[0][0];
+    // Default to enabled if cell is empty or missing
+    return val !== '0';
+  } catch (err) {
+    console.error('[Sheets] getScheduleEnabled error:', err.message);
+    return true; // default: enabled
+  }
+}
+
+async function setScheduleEnabled(enabled) {
+  await updateCell('settings', 'A1', enabled ? '1' : '0');
+}
+
+
   findPromo,
   markPromoUsed,
   getAvailableHours,
@@ -409,4 +417,6 @@ module.exports = {
   getDatePage,
   getMonthSlots,
   formatDate,
+  getScheduleEnabled,
+  setScheduleEnabled,
 };

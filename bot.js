@@ -16,7 +16,12 @@
 
 const TelegramBot = require('node-telegram-bot-api');
 
-const CHANNEL = process.env.CHANNEL_ID || '@pro_telo_niko';
+const CHANNEL    = process.env.CHANNEL_ID || '@pro_telo_niko';
+// Admin user IDs who can use /shed — set ADMIN_IDS env var as comma-separated list
+// e.g. "123456789,987654321"
+const ADMIN_IDS  = new Set(
+  (process.env.ADMIN_IDS || '').split(',').map(s => s.trim()).filter(Boolean).map(Number)
+);
 
 // Lazy-init bot — prevents crash when env vars aren't set at build time
 let _bot = null;
@@ -156,6 +161,18 @@ async function sendRichMsg(token, chatId, html, inlineButtons) {
 async function sendMainMenu(bot, chatId) {
   const token = process.env.BOT_TOKEN;
 
+  // Check if online booking is enabled
+  let scheduleEnabled = true;
+  try {
+    const { getScheduleEnabled } = getSheets();
+    scheduleEnabled = await getScheduleEnabled();
+  } catch (e) { /* default true */ }
+
+  const bookButton = scheduleEnabled
+    ? [{ text: 'Записатись на прийом', callback_data: 'book', style: 'primary' }]
+    : [{ text: 'Записатись на прийом', callback_data: 'book', style: 'primary' }];
+  // Note: book button always shown — online sub-button hidden inside the book step
+
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
       method: 'POST',
@@ -163,18 +180,11 @@ async function sendMainMenu(bot, chatId) {
       body: JSON.stringify({
         chat_id: chatId,
         rich_message: {
-          html:
-            `<img src="tg://photo?id=menu_img" />` +
-            `<p>ㅤ</p>`,
-          media: [
-            {
-              id: 'menu_img',
-              media: {
-                type: 'photo',
-                media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/Slogan.png?raw=true'
-              }
-            }
-          ]
+          html: `<img src="tg://photo?id=menu_img" /><p>ㅤ</p>`,
+          media: [{
+            id: 'menu_img',
+            media: { type: 'photo', media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/Slogan.png?raw=true' }
+          }]
         },
         reply_markup: {
           inline_keyboard: [
@@ -188,9 +198,7 @@ async function sendMainMenu(bot, chatId) {
     if (!data.ok) throw new Error(data.description);
   } catch (err) {
     console.error('sendRichMessage menu failed:', err.message);
-    await bot.sendMessage(
-      chatId,
-      '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
+    await bot.sendMessage(chatId, '👋 Привіт! Я бот студії масажу *Час для себе*.\n\nОбери дію 👇',
       { parse_mode: 'Markdown', ...MAIN_INLINE }
     );
   }
@@ -397,15 +405,31 @@ async function handleUpdate(update) {
       return;
     }
 
-    /* ── BOOKING: start — show date picker ── */
+    /* ── BOOKING: start ── */
     if (data === 'book') {
       await bot.answerCallbackQuery(cq.id);
       clearBooking(chatId);
       bookingState[chatId] = { step: 'date', dateOffset: 0 };
 
-      const token = process.env.BOT_TOKEN;
+      // Check if online booking enabled
+      let scheduleEnabled = true;
       try {
-        // Show booking image + message first
+        const { getScheduleEnabled } = getSheets();
+        scheduleEnabled = await getScheduleEnabled();
+      } catch (e) { /* default true */ }
+
+      const token = process.env.BOT_TOKEN;
+      const onlineBtn = scheduleEnabled
+        ? [{ text: '📅 Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' }, style: 'primary' }]
+        : null;
+
+      const keyboard = [
+        [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' }],
+        ...(onlineBtn ? [onlineBtn] : []),
+        [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'secondary' }]
+      ];
+
+      try {
         const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -416,23 +440,12 @@ async function handleUpdate(update) {
                 `<img src="tg://photo?id=book_img" />` +
                 `<p>⚠️ Наш датацентр наразі працює під великим навантаженням через обстріли.</p>` +
                 `<p>Але ви завжди можете записатись <b>особисто</b> — напишіть майстру напряму 👇</p>`,
-              media: [
-                {
-                  id: 'book_img',
-                  media: {
-                    type: 'photo',
-                    media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/BotQuery.png?raw=true'
-                  }
-                }
-              ]
+              media: [{
+                id: 'book_img',
+                media: { type: 'photo', media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/BotQuery.png?raw=true' }
+              }]
             },
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' }],
-                [{ text: '📅 Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' }, style: 'primary' }],
-                [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'secondary' }]
-              ]
-            }
+            reply_markup: { inline_keyboard: keyboard }
           })
         });
         const d = await res.json();
@@ -445,7 +458,7 @@ async function handleUpdate(update) {
             reply_markup: {
               inline_keyboard: [
                 [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind' }],
-                [{ text: '📅 Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' } }],
+                ...(scheduleEnabled ? [[{ text: '📅 Онлайн-запис', web_app: { url: 'https://ttmbot-theta.vercel.app/book' } }]] : []),
                 [{ text: '🔙 Повернутись до меню', callback_data: 'menu' }]
               ]
             }
@@ -571,6 +584,30 @@ async function handleUpdate(update) {
     console.log(`[/start] isSubscribed=${ok}`);
     if (!ok) { await subscribePrompt(chatId); return; }
     await sendMainMenu(bot, chatId);
+    return;
+  }
+
+  /* /shed — toggle online booking (admin only) */
+  if (text === '/shed') {
+    if (!ADMIN_IDS.has(userId)) {
+      await bot.sendMessage(chatId, '⛔ Немає доступу.');
+      return;
+    }
+    try {
+      const { getScheduleEnabled, setScheduleEnabled } = getSheets();
+      const current = await getScheduleEnabled();
+      const next    = !current;
+      await setScheduleEnabled(next);
+      await bot.sendMessage(chatId,
+        next
+          ? '✅ Онлайн-запис *увімкнено*. Кнопка "📅 Онлайн-запис" відображається.'
+          : '🔴 Онлайн-запис *вимкнено*. Залишається тільки запис через Ольгу.',
+        { parse_mode: 'Markdown' }
+      );
+    } catch (err) {
+      console.error('/shed error:', err.message);
+      await bot.sendMessage(chatId, '⚠️ Помилка: ' + err.message);
+    }
     return;
   }
 
