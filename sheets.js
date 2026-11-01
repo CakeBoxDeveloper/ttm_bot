@@ -408,6 +408,7 @@ async function setScheduleEnabled(enabled) {
 }
 
 
+module.exports = {
   findPromo,
   markPromoUsed,
   getAvailableHours,
