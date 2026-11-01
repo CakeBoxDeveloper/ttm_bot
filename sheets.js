@@ -277,35 +277,77 @@ async function cancelSlot(dateStr, hour) {
 }
 
 /**
- * Get next N available dates from today (inclusive) that have at least one free slot.
- * @param {number} limit  max dates to return (default 14)
+ * Get a page of dates with their availability status — one API call.
+ * Returns array of { dateStr, hasFree: bool }
+ * @param {number} offset  how many future dates to skip
+ * @param {number} count   how many dates to return
  */
-async function getNextAvailableDates(limit = 14) {
+async function getDatePage(offset = 0, count = 12) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const rows = await readRangeSchedule(BOOKING_SHEET, 'A2:A2000');
-  const result = [];
+  // Read all dates + all hour slots in one request: A2:N2000
+  const firstColLetter = hourToColLetter(FIRST_HOUR);   // B
+  const lastColLetter  = hourToColLetter(LAST_HOUR);    // N
+  const rows = await readRangeSchedule(BOOKING_SHEET, `A2:${lastColLetter}2000`);
 
-  for (let i = 0; i < rows.length && result.length < limit; i++) {
-    const dateStr = rows[i][0];
+  const future = [];
+  for (const row of rows) {
+    const dateStr = row[0];
     if (!dateStr) continue;
     const d = parseSheetDate(dateStr);
-    if (d < today) continue;   // past — skip
+    if (d < today) continue;
+    future.push(row);
+  }
 
-    // We don't read each row individually to avoid many API calls.
-    // Return the date; availability is checked when user picks one.
-    result.push(dateStr);
+  const page = future.slice(offset, offset + count);
+  const total = future.length;
+
+  return {
+    dates: page.map(row => {
+      const dateStr = row[0];
+      // slots are columns B..N = indices 1..13
+      const slots = row.slice(1);
+      const hasFree = slots.length < (LAST_HOUR - FIRST_HOUR + 1) ||
+                      slots.some(v => !v || v.trim() === '');
+      return { dateStr, hasFree };
+    }),
+    total,
+    offset,
+  };
+}
+
+/**
+ * Get all hour slots for a date with their status — one API call.
+ * Returns array of { hour, free: bool }
+ */
+async function getHourSlots(dateStr) {
+  const row = await findDateRow(dateStr);
+  if (!row) return [];
+
+  const firstColLetter = hourToColLetter(FIRST_HOUR);
+  const lastColLetter  = hourToColLetter(LAST_HOUR);
+  const rows = await readRangeSchedule(BOOKING_SHEET, `${firstColLetter}${row}:${lastColLetter}${row}`);
+  const values = rows[0] || [];
+
+  const result = [];
+  for (let i = 0; i <= LAST_HOUR - FIRST_HOUR; i++) {
+    result.push({
+      hour: FIRST_HOUR + i,
+      free: !values[i] || values[i].trim() === '',
+    });
   }
   return result;
 }
+
 
 module.exports = {
   findPromo,
   markPromoUsed,
   getAvailableHours,
+  getHourSlots,
   bookSlot,
   cancelSlot,
-  getNextAvailableDates,
+  getDatePage,
   formatDate,
 };

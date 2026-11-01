@@ -200,72 +200,106 @@ async function sendMainMenu(bot, chatId) {
    BOOKING FLOW HELPERS
 ══════════════════════════════════════ */
 
-const DATES_PER_PAGE = 7;   // how many dates to show at once
+const DATES_PER_PAGE = 12;  // 4 колонки × 3 рядки
+const DAY_NAMES = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
+══════════════════════════════════════ */
 
 /**
- * Send date-picker — shows next available dates as inline buttons.
- * offset allows pagination (show more dates).
+ * Send date-picker via sendRichMessage — кнопки с цветом.
+ * Зелёные (success) = есть свободные слоты, красные (danger) = всё занято.
+ * Пагинация ◀ ▶
  */
 async function sendDatePicker(bot, chatId, offset = 0) {
   const token = process.env.BOT_TOKEN;
-  const { getNextAvailableDates } = getSheets();
+  const { getDatePage } = getSheets();
 
-  let dates;
+  let page, total;
   try {
-    dates = await getNextAvailableDates(offset + DATES_PER_PAGE + 5);
+    const result = await getDatePage(offset, DATES_PER_PAGE);
+    page  = result.dates;
+    total = result.total;
   } catch (err) {
-    console.error('getNextAvailableDates error:', err.message);
+    console.error('getDatePage error:', err.message);
     await bot.sendMessage(chatId,
       '⚠️ Не вдалося завантажити розклад. Спробуй пізніше або запишись через @Olga_Dind',
-      {
-        reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] }
-      }
+      { reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] } }
     );
     return;
   }
-
-  const page    = dates.slice(offset, offset + DATES_PER_PAGE);
-  const hasMore = dates.length > offset + DATES_PER_PAGE;
 
   if (page.length === 0) {
     await bot.sendMessage(chatId,
-      '😔 Вільних дат найближчим часом немає. Спробуй пізніше або запишись через @Olga_Dind',
-      {
-        reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] }
-      }
+      '😔 Вільних дат немає. Спробуй пізніше або запишись через @Olga_Dind',
+      { reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] } }
     );
     return;
   }
 
-  // Build keyboard: 1 date per row
-  const keyboard = page.map(d => {
-    // Pretty label: "Пн 15.01" etc.
-    const parts = d.split('.');
-    const jsDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-    const dayNames = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
-    const label = `${dayNames[jsDate.getDay()]} ${d}`;
-    return [{ text: label, callback_data: `date:${d}` }];
-  });
-
-  if (hasMore) {
-    keyboard.push([{ text: '⬇️ Показати більше дат', callback_data: `dates_more:${offset + DATES_PER_PAGE}` }]);
+  // Клавіатура: 4 кнопки в рядок, style: success/danger
+  const keyboard = [];
+  for (let i = 0; i < page.length; i += 4) {
+    keyboard.push(
+      page.slice(i, i + 4).map(({ dateStr, hasFree }) => {
+        const parts  = dateStr.split('.');
+        const jsDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+        const label  = `${DAY_NAMES[jsDate.getDay()]} ${parts[0]}.${parts[1]}`;
+        return {
+          text:          label,
+          callback_data: `date:${dateStr}`,
+          style:         hasFree ? 'success' : 'danger',
+        };
+      })
+    );
   }
-  keyboard.push([{ text: '🔙 Меню', callback_data: 'menu' }]);
 
-  await bot.sendMessage(chatId, '📅 Оберіть дату:', { reply_markup: { inline_keyboard: keyboard } });
+  // Навігація ◀ ▶
+  const navRow = [];
+  if (offset > 0) {
+    navRow.push({ text: '◀', callback_data: `dates_page:${Math.max(0, offset - DATES_PER_PAGE)}`, style: 'primary' });
+  }
+  if (offset + DATES_PER_PAGE < total) {
+    navRow.push({ text: '▶', callback_data: `dates_page:${offset + DATES_PER_PAGE}`, style: 'primary' });
+  }
+  if (navRow.length > 0) keyboard.push(navRow);
+  keyboard.push([{ text: '🔙 Меню', callback_data: 'menu', style: 'secondary' }]);
+
+  const pageNum  = Math.floor(offset / DATES_PER_PAGE) + 1;
+  const totalPgs = Math.ceil(total / DATES_PER_PAGE);
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id:      chatId,
+        rich_message: { html: `<p>📅 Оберіть дату (стор. ${pageNum}/${totalPgs}):</p>` },
+        reply_markup: { inline_keyboard: keyboard },
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+  } catch (err) {
+    console.error('sendDatePicker richMessage failed:', err.message);
+    // fallback без кольору
+    await bot.sendMessage(chatId,
+      `📅 Оберіть дату (стор. ${pageNum}/${totalPgs}):`,
+      { reply_markup: { inline_keyboard: keyboard } }
+    );
+  }
 }
 
 /**
- * Send hour-picker for a chosen date.
+ * Send hour-picker via sendRichMessage — зелені/червоні кнопки.
  */
 async function sendHourPicker(bot, chatId, dateStr) {
-  const { getAvailableHours } = getSheets();
+  const token = process.env.BOT_TOKEN;
+  const { getHourSlots } = getSheets();
 
-  let hours;
+  let slots;
   try {
-    hours = await getAvailableHours(dateStr);
+    slots = await getHourSlots(dateStr);
   } catch (err) {
-    console.error('getAvailableHours error:', err.message);
+    console.error('getHourSlots error:', err.message);
     await bot.sendMessage(chatId,
       '⚠️ Не вдалося завантажити слоти. Спробуй пізніше.',
       { reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] } }
@@ -273,30 +307,53 @@ async function sendHourPicker(bot, chatId, dateStr) {
     return;
   }
 
-  if (hours.length === 0) {
+  if (slots.length === 0) {
     await bot.sendMessage(chatId,
-      `😔 На ${dateStr} немає вільних слотів.\n\nОберіть іншу дату:`,
-      { reply_markup: { inline_keyboard: [[{ text: '📅 Інша дата', callback_data: 'book' }, { text: '🔙 Меню', callback_data: 'menu' }]] } }
+      `😔 Дата ${dateStr} не знайдена в розкладі.`,
+      { reply_markup: { inline_keyboard: [[{ text: '📅 Інша дата', callback_data: 'book_online' }, { text: '🔙 Меню', callback_data: 'menu' }]] } }
     );
     return;
   }
 
-  // 3 buttons per row
-  const rows = [];
-  for (let i = 0; i < hours.length; i += 3) {
-    rows.push(
-      hours.slice(i, i + 3).map(h => ({
-        text: `🟢 ${h}:00`,
-        callback_data: `hour:${h}`
+  // 4 кнопки в рядок, style: success/danger
+  const keyboard = [];
+  for (let i = 0; i < slots.length; i += 4) {
+    keyboard.push(
+      slots.slice(i, i + 4).map(({ hour, free }) => ({
+        text:          `${hour}:00`,
+        callback_data: free ? `hour:${hour}` : `hour_taken:${hour}`,
+        style:         free ? 'success' : 'danger',
       }))
     );
   }
-  rows.push([{ text: '📅 Інша дата', callback_data: 'book' }, { text: '🔙 Меню', callback_data: 'menu' }]);
+  keyboard.push([
+    { text: '📅 Інша дата', callback_data: 'book_online', style: 'primary' },
+    { text: '🔙 Меню',      callback_data: 'menu',        style: 'secondary' },
+  ]);
 
-  await bot.sendMessage(chatId,
-    `📅 ${dateStr} — оберіть час:`,
-    { reply_markup: { inline_keyboard: rows } }
-  );
+  const parts   = dateStr.split('.');
+  const jsDate  = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+  const dayLabel = `${DAY_NAMES[jsDate.getDay()]}, ${dateStr}`;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id:      chatId,
+        rich_message: { html: `<p>🕐 <b>${dayLabel}</b> — оберіть час:</p>` },
+        reply_markup: { inline_keyboard: keyboard },
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+  } catch (err) {
+    console.error('sendHourPicker richMessage failed:', err.message);
+    await bot.sendMessage(chatId,
+      `🕐 ${dayLabel} — оберіть час:`,
+      { reply_markup: { inline_keyboard: keyboard } }
+    );
+  }
 }
 
 /* ══════════════════════════════════════
@@ -409,7 +466,7 @@ async function handleUpdate(update) {
     }
 
     /* ── BOOKING: more dates (pagination) ── */
-    if (data.startsWith('dates_more:')) {
+    if (data.startsWith('dates_page:')) {
       await bot.answerCallbackQuery(cq.id);
       const offset = parseInt(data.split(':')[1], 10) || 0;
       if (bookingState[chatId]) bookingState[chatId].dateOffset = offset;
@@ -440,6 +497,15 @@ async function handleUpdate(update) {
         `✅ ${state.date} о ${hour}:00\n\nВведіть ваше ім'я:`,
         { reply_markup: { inline_keyboard: [[{ text: '❌ Скасувати', callback_data: 'cancel_booking' }]] } }
       );
+      return;
+    }
+
+    /* ── BOOKING: hour already taken ── */
+    if (data.startsWith('hour_taken:')) {
+      await bot.answerCallbackQuery(cq.id, {
+        text: '🔴 Цей час вже зайнятий. Оберіть інший.',
+        show_alert: true
+      });
       return;
     }
 
