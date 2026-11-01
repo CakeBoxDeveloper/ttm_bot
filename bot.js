@@ -202,7 +202,6 @@ async function sendMainMenu(bot, chatId) {
 
 const DATES_PER_PAGE = 12;  // 4 колонки × 3 рядки
 const DAY_NAMES = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
-══════════════════════════════════════ */
 
 /**
  * Send date-picker via sendRichMessage — кнопки с цветом.
