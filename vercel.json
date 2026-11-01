@@ -1,8 +1,9 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api/webhook",  "destination": "/api/webhook.js"  },
-    { "source": "/api/schedule", "destination": "/api/schedule.js" },
-    { "source": "/api/book",     "destination": "/api/book.js"     }
+    { "source": "/api/webhook",  "destination": "/api/webhook.js"   },
+    { "source": "/api/schedule", "destination": "/api/schedule.js"  },
+    { "source": "/api/book",     "destination": "/api/book.js"      },
+    { "source": "/book",         "destination": "/api/book-page.js" }
   ]
 }
