@@ -4,8 +4,11 @@
  * TTM Massage Bot — Vercel Webhook version
  *
  * Vercel environment variables:
- *   BOT_TOKEN   — Telegram bot token from @BotFather
- *   CHANNEL_ID  — e.g. @pro_telo_niko (change without redeploy)
+ *   BOT_TOKEN            — Telegram bot token from @BotFather
+ *   CHANNEL_ID           — e.g. @pro_telo_niko (change without redeploy)
+ *   GOOGLE_CLIENT_EMAIL  — service account email
+ *   GOOGLE_PRIVATE_KEY   — service account private key (with \n as newlines)
+ *   SHEET_ID             — Google Spreadsheet ID from URL
  *
  * Register webhook once after deploy:
  *   curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<project>.vercel.app/api/webhook"
@@ -15,8 +18,7 @@ const TelegramBot = require('node-telegram-bot-api');
 
 const CHANNEL = process.env.CHANNEL_ID || '@pro_telo_niko';
 
-// Lazy-init: bot created on first request, not at module load
-// This prevents crash when env vars aren't set at build time
+// Lazy-init bot — prevents crash when env vars aren't set at build time
 let _bot = null;
 function getBot() {
   if (!_bot) {
@@ -33,15 +35,12 @@ async function isSubscribed(userId) {
     const m = await getBot().getChatMember(CHANNEL, userId);
     return ['member', 'administrator', 'creator'].includes(m.status);
   } catch (err) {
-    // Log error — most likely bot is not an admin of the channel
     console.error(`isSubscribed check failed for channel ${CHANNEL}:`, err.message);
-    // Return false so users are prompted to subscribe (not true/bypassed)
-    // Change back to `return true` if you want to bypass check during development
     return false;
   }
 }
 
-/* ─── Subscribe prompt — Rich Message with inline button in text ─── */
+/* ─── Subscribe prompt ─── */
 async function subscribePrompt(chatId) {
   const channelUrl = `https://t.me/${CHANNEL.replace('@', '')}`;
   const token = process.env.BOT_TOKEN;
@@ -60,7 +59,6 @@ async function subscribePrompt(chatId) {
       body: JSON.stringify({
         chat_id: chatId,
         rich_message: { html },
-        // Inline keyboard UNDER message — green via style field (Bot API 10.3)
         reply_markup: {
           inline_keyboard: [[
             { text: 'Перевірити підписку', callback_data: 'check_sub', style: 'success' }
@@ -68,10 +66,8 @@ async function subscribePrompt(chatId) {
         }
       })
     });
-
     const data = await res.json();
     if (!data.ok) throw new Error(data.description);
-
   } catch (err) {
     console.error('sendRichMessage failed, falling back:', err.message);
     await getBot().sendMessage(
@@ -90,7 +86,7 @@ async function subscribePrompt(chatId) {
   }
 }
 
-/* ─── Main menu inline keyboard ─── */
+/* ─── Main menu inline keyboard (fallback) ─── */
 const MAIN_INLINE = {
   reply_markup: {
     inline_keyboard: [
@@ -100,7 +96,29 @@ const MAIN_INLINE = {
   }
 };
 
-/* ─── State (resets on cold start) ─── */
+/* ══════════════════════════════════════
+   BOOKING SESSION STATE
+   Stored per chatId in memory.
+   Resets on Vercel cold start — acceptable since
+   each step is very fast (seconds, not minutes).
+══════════════════════════════════════ */
+
+/**
+ * bookingState[chatId] = {
+ *   step: 'date' | 'hour' | 'name' | 'phone',
+ *   date: "DD.MM.YYYY",
+ *   hour: 14,
+ *   name: "Ім'я",
+ *   dateOffset: 0   // pagination offset for date list
+ * }
+ */
+const bookingState = {};
+
+function clearBooking(chatId) {
+  delete bookingState[chatId];
+}
+
+/* ─── State (for promo code flow) ─── */
 const waitingForCode = new Set();
 
 /* ─── Load discount codes (legacy JSON fallback) ─── */
@@ -134,7 +152,7 @@ async function sendRichMsg(token, chatId, html, inlineButtons) {
   }
 }
 
-/* ─── Send main menu as Rich Message with colored buttons UNDER it ─── */
+/* ─── Send main menu ─── */
 async function sendMainMenu(bot, chatId) {
   const token = process.env.BOT_TOKEN;
 
@@ -178,7 +196,112 @@ async function sendMainMenu(bot, chatId) {
   }
 }
 
-/* ─── Main handler ─── */
+/* ══════════════════════════════════════
+   BOOKING FLOW HELPERS
+══════════════════════════════════════ */
+
+const DATES_PER_PAGE = 7;   // how many dates to show at once
+
+/**
+ * Send date-picker — shows next available dates as inline buttons.
+ * offset allows pagination (show more dates).
+ */
+async function sendDatePicker(bot, chatId, offset = 0) {
+  const token = process.env.BOT_TOKEN;
+  const { getNextAvailableDates } = getSheets();
+
+  let dates;
+  try {
+    dates = await getNextAvailableDates(offset + DATES_PER_PAGE + 5);
+  } catch (err) {
+    console.error('getNextAvailableDates error:', err.message);
+    await bot.sendMessage(chatId,
+      '⚠️ Не вдалося завантажити розклад. Спробуй пізніше або запишись через @Olga_Dind',
+      {
+        reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] }
+      }
+    );
+    return;
+  }
+
+  const page    = dates.slice(offset, offset + DATES_PER_PAGE);
+  const hasMore = dates.length > offset + DATES_PER_PAGE;
+
+  if (page.length === 0) {
+    await bot.sendMessage(chatId,
+      '😔 Вільних дат найближчим часом немає. Спробуй пізніше або запишись через @Olga_Dind',
+      {
+        reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] }
+      }
+    );
+    return;
+  }
+
+  // Build keyboard: 1 date per row
+  const keyboard = page.map(d => {
+    // Pretty label: "Пн 15.01" etc.
+    const parts = d.split('.');
+    const jsDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    const dayNames = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
+    const label = `${dayNames[jsDate.getDay()]} ${d}`;
+    return [{ text: label, callback_data: `date:${d}` }];
+  });
+
+  if (hasMore) {
+    keyboard.push([{ text: '⬇️ Показати більше дат', callback_data: `dates_more:${offset + DATES_PER_PAGE}` }]);
+  }
+  keyboard.push([{ text: '🔙 Меню', callback_data: 'menu' }]);
+
+  await bot.sendMessage(chatId, '📅 Оберіть дату:', { reply_markup: { inline_keyboard: keyboard } });
+}
+
+/**
+ * Send hour-picker for a chosen date.
+ */
+async function sendHourPicker(bot, chatId, dateStr) {
+  const { getAvailableHours } = getSheets();
+
+  let hours;
+  try {
+    hours = await getAvailableHours(dateStr);
+  } catch (err) {
+    console.error('getAvailableHours error:', err.message);
+    await bot.sendMessage(chatId,
+      '⚠️ Не вдалося завантажити слоти. Спробуй пізніше.',
+      { reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] } }
+    );
+    return;
+  }
+
+  if (hours.length === 0) {
+    await bot.sendMessage(chatId,
+      `😔 На ${dateStr} немає вільних слотів.\n\nОберіть іншу дату:`,
+      { reply_markup: { inline_keyboard: [[{ text: '📅 Інша дата', callback_data: 'book' }, { text: '🔙 Меню', callback_data: 'menu' }]] } }
+    );
+    return;
+  }
+
+  // 3 buttons per row
+  const rows = [];
+  for (let i = 0; i < hours.length; i += 3) {
+    rows.push(
+      hours.slice(i, i + 3).map(h => ({
+        text: `🟢 ${h}:00`,
+        callback_data: `hour:${h}`
+      }))
+    );
+  }
+  rows.push([{ text: '📅 Інша дата', callback_data: 'book' }, { text: '🔙 Меню', callback_data: 'menu' }]);
+
+  await bot.sendMessage(chatId,
+    `📅 ${dateStr} — оберіть час:`,
+    { reply_markup: { inline_keyboard: rows } }
+  );
+}
+
+/* ══════════════════════════════════════
+   MAIN HANDLER
+══════════════════════════════════════ */
 async function handleUpdate(update) {
   const bot = getBot();
 
@@ -187,9 +310,10 @@ async function handleUpdate(update) {
     const cq     = update.callback_query;
     const chatId = cq.message.chat.id;
     const userId = cq.from.id;
+    const data   = cq.data;
 
     /* Check subscription button */
-    if (cq.data === 'check_sub') {
+    if (data === 'check_sub') {
       const ok = await isSubscribed(userId);
       if (ok) {
         await bot.answerCallbackQuery(cq.id, { text: '✅ Підписку підтверджено!' });
@@ -211,17 +335,21 @@ async function handleUpdate(update) {
       return;
     }
 
-    /* Noop — do nothing (used for display-only colored buttons) */
-    if (cq.data === 'noop') {
+    /* Noop — display-only colored buttons */
+    if (data === 'noop') {
       await bot.answerCallbackQuery(cq.id);
       return;
     }
 
-    /* Book appointment */
-    if (cq.data === 'book') {
+    /* ── BOOKING: start — show date picker ── */
+    if (data === 'book') {
       await bot.answerCallbackQuery(cq.id);
+      clearBooking(chatId);
+      bookingState[chatId] = { step: 'date', dateOffset: 0 };
+
       const token = process.env.BOT_TOKEN;
       try {
+        // Show booking image + message first
         const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -245,22 +373,23 @@ async function handleUpdate(update) {
             reply_markup: {
               inline_keyboard: [
                 [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind', style: 'success' }],
-                [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'primary' }]
+                [{ text: '📅 Записатись через бот', callback_data: 'book_online', style: 'primary' }],
+                [{ text: '🔙 Повернутись до меню', callback_data: 'menu', style: 'secondary' }]
               ]
             }
           })
         });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.description);
+        const d = await res.json();
+        if (!d.ok) throw new Error(d.description);
       } catch (err) {
         console.error('book sendRichMessage failed:', err.message);
-        await bot.sendMessage(
-          chatId,
+        await bot.sendMessage(chatId,
           '⚠️ Наш датацентр наразі під великим навантаженням через обстріли.\n\nАле можна записатись особисто — напишіть майстру: @Olga_Dind',
           {
             reply_markup: {
               inline_keyboard: [
                 [{ text: '💬 Записатись до Ольги', url: 'https://t.me/Olga_Dind' }],
+                [{ text: '📅 Записатись через бот', callback_data: 'book_online' }],
                 [{ text: '🔙 Повернутись до меню', callback_data: 'menu' }]
               ]
             }
@@ -270,8 +399,60 @@ async function handleUpdate(update) {
       return;
     }
 
+    /* ── BOOKING ONLINE: show date picker ── */
+    if (data === 'book_online') {
+      await bot.answerCallbackQuery(cq.id);
+      clearBooking(chatId);
+      bookingState[chatId] = { step: 'date', dateOffset: 0 };
+      await sendDatePicker(bot, chatId, 0);
+      return;
+    }
+
+    /* ── BOOKING: more dates (pagination) ── */
+    if (data.startsWith('dates_more:')) {
+      await bot.answerCallbackQuery(cq.id);
+      const offset = parseInt(data.split(':')[1], 10) || 0;
+      if (bookingState[chatId]) bookingState[chatId].dateOffset = offset;
+      await sendDatePicker(bot, chatId, offset);
+      return;
+    }
+
+    /* ── BOOKING: date selected ── */
+    if (data.startsWith('date:')) {
+      await bot.answerCallbackQuery(cq.id);
+      const dateStr = data.slice(5);   // "DD.MM.YYYY"
+      bookingState[chatId] = { ...(bookingState[chatId] || {}), step: 'hour', date: dateStr };
+      await sendHourPicker(bot, chatId, dateStr);
+      return;
+    }
+
+    /* ── BOOKING: hour selected ── */
+    if (data.startsWith('hour:')) {
+      await bot.answerCallbackQuery(cq.id);
+      const hour = parseInt(data.split(':')[1], 10);
+      const state = bookingState[chatId];
+      if (!state || !state.date) {
+        await sendDatePicker(bot, chatId, 0);
+        return;
+      }
+      bookingState[chatId] = { ...state, step: 'name', hour };
+      await bot.sendMessage(chatId,
+        `✅ ${state.date} о ${hour}:00\n\nВведіть ваше ім'я:`,
+        { reply_markup: { inline_keyboard: [[{ text: '❌ Скасувати', callback_data: 'cancel_booking' }]] } }
+      );
+      return;
+    }
+
+    /* ── BOOKING: cancel ── */
+    if (data === 'cancel_booking') {
+      await bot.answerCallbackQuery(cq.id);
+      clearBooking(chatId);
+      await sendMainMenu(bot, chatId);
+      return;
+    }
+
     /* Promo code — ask to enter */
-    if (cq.data === 'promo') {
+    if (data === 'promo') {
       await bot.answerCallbackQuery(cq.id);
       waitingForCode.add(chatId);
       await bot.sendMessage(
@@ -288,8 +469,8 @@ async function handleUpdate(update) {
       return;
     }
 
-    /* Cancel */
-    if (cq.data === 'cancel') {
+    /* Cancel promo */
+    if (data === 'cancel') {
       await bot.answerCallbackQuery(cq.id);
       waitingForCode.delete(chatId);
       await sendMainMenu(bot, chatId);
@@ -297,8 +478,9 @@ async function handleUpdate(update) {
     }
 
     /* Back to menu */
-    if (cq.data === 'menu') {
+    if (data === 'menu') {
       await bot.answerCallbackQuery(cq.id);
+      clearBooking(chatId);
       await sendMainMenu(bot, chatId);
       return;
     }
@@ -318,6 +500,8 @@ async function handleUpdate(update) {
   /* /start */
   if (text === '/start') {
     console.log(`[/start] userId=${userId}`);
+    clearBooking(chatId);
+    waitingForCode.delete(chatId);
     const ok = await isSubscribed(userId);
     console.log(`[/start] isSubscribed=${ok}`);
     if (!ok) { await subscribePrompt(chatId); return; }
@@ -329,7 +513,32 @@ async function handleUpdate(update) {
   const ok = await isSubscribed(userId);
   if (!ok) { await subscribePrompt(chatId); return; }
 
-  /* Process promo code if waiting */
+  /* ── BOOKING: collect name ── */
+  const state = bookingState[chatId];
+  if (state && state.step === 'name') {
+    bookingState[chatId] = { ...state, step: 'phone', name: text };
+    await bot.sendMessage(chatId,
+      `📝 Ім'я: *${text}*\n\nВведіть номер телефону (або натисніть «Пропустити»):`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '➡️ Пропустити', callback_data: 'skip_phone' }],
+            [{ text: '❌ Скасувати', callback_data: 'cancel_booking' }]
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  /* ── BOOKING: collect phone ── */
+  if (state && state.step === 'phone') {
+    await finishBooking(bot, chatId, cq, msg, text);
+    return;
+  }
+
+  /* ── PROMO: process promo code ── */
   if (waitingForCode.has(chatId)) {
     waitingForCode.delete(chatId);
     const code = text.toUpperCase();
@@ -337,8 +546,7 @@ async function handleUpdate(update) {
     try {
       const { findPromo } = getSheets();
       const result = await findPromo(code);
-
-      const token = process.env.BOT_TOKEN;
+      const token  = process.env.BOT_TOKEN;
 
       if (!result.found) {
         await sendRichMsg(token, chatId,
@@ -380,10 +588,119 @@ async function handleUpdate(update) {
   /* Fallback — show menu */
   await sendMainMenu(bot, chatId);
 
-  // DEV: log sticker/emoji info
   if (msg.sticker) {
     console.log('[Sticker]', JSON.stringify(msg.sticker));
   }
 }
 
-module.exports = { handleUpdate };
+/* ══════════════════════════════════════
+   FINISH BOOKING — called after name+phone collected
+   Also handles 'skip_phone' callback
+══════════════════════════════════════ */
+async function finishBooking(bot, chatId, cq, msg, phone) {
+  const state = bookingState[chatId];
+  if (!state || !state.date || !state.hour || !state.name) {
+    clearBooking(chatId);
+    await sendMainMenu(bot, chatId);
+    return;
+  }
+
+  clearBooking(chatId);
+
+  const { date, hour, name } = state;
+  const username = msg ? (msg.from.username ? `@${msg.from.username}` : '') : '';
+  const phoneStr = (phone && phone !== 'skip') ? phone : '';
+
+  try {
+    const { bookSlot } = getSheets();
+    const result = await bookSlot(date, hour, name, username, phoneStr);
+
+    if (result === 'ok') {
+      await bot.sendMessage(chatId,
+        `✅ Запис підтверджено!\n\n📅 ${date} о ${hour}:00\n👤 ${name}${phoneStr ? '\n📞 ' + phoneStr : ''}\n\nЧекаємо на вас! 💆`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔙 Головне меню', callback_data: 'menu' }]]
+          }
+        }
+      );
+    } else if (result === 'taken') {
+      await bot.sendMessage(chatId,
+        `😔 На жаль, ${date} о ${hour}:00 вже зайнято.\n\nОберіть інший час:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🕐 Інший час',  callback_data: `date:${date}` }],
+              [{ text: '📅 Інша дата',  callback_data: 'book_online'  }],
+              [{ text: '🔙 Меню',       callback_data: 'menu'         }]
+            ]
+          }
+        }
+      );
+    } else {
+      await bot.sendMessage(chatId,
+        `⚠️ Дата ${date} не знайдена в розкладі. Спробуй інший варіант.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📅 Обрати дату', callback_data: 'book_online' }],
+              [{ text: '🔙 Меню',        callback_data: 'menu'         }]
+            ]
+          }
+        }
+      );
+    }
+  } catch (err) {
+    console.error('bookSlot error:', err.message);
+    await bot.sendMessage(chatId,
+      '⚠️ Помилка при записі. Спробуй ще раз або запишись через @Olga_Dind',
+      {
+        reply_markup: { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] }
+      }
+    );
+  }
+}
+
+/* ══════════════════════════════════════
+   Handle 'skip_phone' callback — wired into handleUpdate
+══════════════════════════════════════ */
+const _origHandleUpdate = handleUpdate;
+
+// Patch: handle skip_phone inline callback inside the callback_query branch
+// We do this by augmenting handleUpdate post-definition via a wrapper.
+// (skip_phone arrives as a callback_query, not a text message)
+const handleUpdateWithSkip = async (update) => {
+  if (
+    update.callback_query &&
+    update.callback_query.data === 'skip_phone'
+  ) {
+    const cq     = update.callback_query;
+    const chatId = cq.message.chat.id;
+    const userId = cq.from.id;
+
+    // Subscription check
+    const subOk = await isSubscribed(userId);
+    if (!subOk) {
+      await getBot().answerCallbackQuery(cq.id);
+      await subscribePrompt(chatId);
+      return;
+    }
+
+    const state = bookingState[chatId];
+    if (!state || state.step !== 'phone') {
+      await getBot().answerCallbackQuery(cq.id);
+      await sendMainMenu(getBot(), chatId);
+      return;
+    }
+
+    await getBot().answerCallbackQuery(cq.id);
+    // Move to finishBooking with empty phone
+    await finishBooking(getBot(), chatId, null, cq.message, '');
+    return;
+  }
+
+  return _origHandleUpdate(update);
+};
+
+module.exports = { handleUpdate: handleUpdateWithSkip };

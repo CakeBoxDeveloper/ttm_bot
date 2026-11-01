@@ -129,4 +129,166 @@ async function markPromoUsed(rowIndex) {
   await updateCell('promo_codes', `D${rowIndex}`, false);
 }
 
-module.exports = { findPromo, markPromoUsed };
+/* ══════════════════════════════════════
+   SCHEDULE / BOOKING  (sheet: schedule)
+
+   Row 1 = header:  Дата | 09:00 | 10:00 | … | 21:00
+   Row 2+ = one row per calendar day (01.01.2025 – 31.12.2027)
+   Col A = date string "DD.MM.YYYY"
+   Col B+ = hour slots (empty = free, text = booked)
+
+   Booked cell value:  "Name | @username | phone"
+══════════════════════════════════════ */
+
+const BOOKING_SHEET = 'schedule';
+const FIRST_HOUR    = 9;    // 09:00
+const LAST_HOUR     = 21;   // 21:00
+
+/** Column index (1-based) for a given hour (9→2, 10→3, … 21→14) */
+function hourToCol(hour) { return hour - FIRST_HOUR + 2; }
+
+/** Column letter for a given hour */
+function hourToColLetter(hour) {
+  const col = hourToCol(hour);
+  // A=1, B=2 … Z=26, AA=27 …
+  let letter = '';
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+
+/** Format a JS Date as "DD.MM.YYYY" matching the sheet */
+function formatDate(d) {
+  const dd   = String(d.getDate()).padStart(2, '0');
+  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+/** Parse "DD.MM.YYYY" → JS Date */
+function parseSheetDate(str) {
+  const [dd, mm, yyyy] = str.split('.');
+  return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+}
+
+/**
+ * Find the sheet row number for a given date string "DD.MM.YYYY".
+ * Reads column A (dates) and searches by value.
+ * Returns row number (1-based) or null if not found.
+ */
+async function findDateRow(dateStr) {
+  // Read all dates from column A (skip header row 1)
+  const rows = await readRange(BOOKING_SHEET, 'A2:A2000');
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i][0] === dateStr) return i + 2; // +2: header + 0-index
+  }
+  return null;
+}
+
+/**
+ * Get available (free) hours for a given date.
+ * Returns array of hour numbers, e.g. [9, 10, 13, 14].
+ */
+async function getAvailableHours(dateStr) {
+  const row = await findDateRow(dateStr);
+  if (!row) return [];   // date not in sheet
+
+  const firstColLetter = hourToColLetter(FIRST_HOUR);   // B
+  const lastColLetter  = hourToColLetter(LAST_HOUR);    // N (or whatever)
+  const range = `${firstColLetter}${row}:${lastColLetter}${row}`;
+
+  const rows = await readRange(BOOKING_SHEET, range);
+  const values = rows[0] || [];
+
+  const available = [];
+  for (let i = 0; i <= LAST_HOUR - FIRST_HOUR; i++) {
+    const hour = FIRST_HOUR + i;
+    const cell = values[i];
+    if (!cell || cell.trim() === '') {
+      available.push(hour);
+    }
+  }
+  return available;
+}
+
+/**
+ * Book a slot.
+ * @param {string} dateStr   "DD.MM.YYYY"
+ * @param {number} hour      e.g. 14
+ * @param {string} name      client name
+ * @param {string} username  Telegram @username (may be empty)
+ * @param {string} phone     phone number (may be empty)
+ * @returns {'ok'|'taken'|'not_found'}
+ */
+async function bookSlot(dateStr, hour, name, username, phone) {
+  const row = await findDateRow(dateStr);
+  if (!row) return 'not_found';
+
+  const colLetter = hourToColLetter(hour);
+  const cell      = `${colLetter}${row}`;
+
+  // Read current value first — prevent double-booking
+  const current = await readRange(BOOKING_SHEET, `${cell}:${cell}`);
+  const existing = (current[0] && current[0][0]) ? current[0][0].trim() : '';
+  if (existing !== '') return 'taken';
+
+  // Write booking
+  const parts = [name];
+  if (username) parts.push(username.startsWith('@') ? username : `@${username}`);
+  if (phone)    parts.push(phone);
+  const value = parts.join(' | ');
+
+  await updateCell(BOOKING_SHEET, cell, value);
+  return 'ok';
+}
+
+/**
+ * Cancel a booking (clear the cell).
+ * Only the cell owner or admin should call this.
+ */
+async function cancelSlot(dateStr, hour) {
+  const row = await findDateRow(dateStr);
+  if (!row) return 'not_found';
+  const colLetter = hourToColLetter(hour);
+  await updateCell(BOOKING_SHEET, `${colLetter}${row}`, '');
+  return 'ok';
+}
+
+/**
+ * Get next N available dates from today (inclusive) that have at least one free slot.
+ * @param {number} limit  max dates to return (default 14)
+ */
+async function getNextAvailableDates(limit = 14) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Read all dates column
+  const rows = await readRange(BOOKING_SHEET, 'A2:A2000');
+  const result = [];
+
+  for (let i = 0; i < rows.length && result.length < limit; i++) {
+    const dateStr = rows[i][0];
+    if (!dateStr) continue;
+    const d = parseSheetDate(dateStr);
+    if (d < today) continue;   // past — skip
+
+    // We don't read each row individually to avoid many API calls.
+    // Return the date; availability is checked when user picks one.
+    result.push(dateStr);
+  }
+  return result;
+}
+
+module.exports = {
+  findPromo,
+  markPromoUsed,
+  getAvailableHours,
+  bookSlot,
+  cancelSlot,
+  getNextAvailableDates,
+  formatDate,
+};
