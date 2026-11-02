@@ -435,8 +435,8 @@ async function handleUpdate(update) {
             rich_message: {
               html:
                 `<img src="tg://photo?id=book_img" />` +
-                `<p>⚠️ Наш датацентр наразі працює під великим навантаженням через обстріли.</p>` +
-                `<p>Але ви завжди можете записатись <b>особисто</b> — напишіть майстру напряму 👇</p>`,
+                `<p>Наш датацентр наразі працює під великим навантаженням через обстріли.</p>` +
+                `<blockquote>Але ви завжди можете записатись особисто — напишіть майстру напряму</blockquote>`,
               media: [{
                 id: 'book_img',
                 media: { type: 'photo', media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/BotQuery.png?raw=true' }
@@ -450,7 +450,7 @@ async function handleUpdate(update) {
       } catch (err) {
         console.error('book sendRichMessage failed:', err.message);
         await bot.sendMessage(chatId,
-          '⚠️ Наш датацентр наразі під великим навантаженням через обстріли.\n\nАле можна записатись особисто — напишіть майстру: @Olga_Dind',
+          'Наш датацентр наразі під великим навантаженням через обстріли.\n\nАле можна записатись особисто — напишіть майстру: @Olga_Dind',
           {
             reply_markup: {
               inline_keyboard: [
@@ -506,7 +506,7 @@ async function handleUpdate(update) {
       bookingState[chatId] = { ...state, step: 'name', hour };
       await bot.sendMessage(chatId,
         `✅ ${state.date} о ${hour}:00\n\nВведіть ваше ім'я:`,
-        { reply_markup: { inline_keyboard: [[{ text: '❌ Скасувати', callback_data: 'cancel_booking' }]] } }
+        { reply_markup: { inline_keyboard: [[{ text: 'Скасувати', callback_data: 'cancel_booking' }]] } }
       );
       return;
     }
@@ -532,17 +532,39 @@ async function handleUpdate(update) {
     if (data === 'promo') {
       await bot.answerCallbackQuery(cq.id);
       waitingForCode.add(chatId);
-      await bot.sendMessage(
-        chatId,
-        '🔑 Введи свій бонусний код:',
-        {
+      const token = process.env.BOT_TOKEN;
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendRichMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            rich_message: {
+              html:
+                `<img src="tg://photo?id=promo_img" />` +
+                `<p>Введіть свій бонусний код:</p>`,
+              media: [{
+                id: 'promo_img',
+                media: { type: 'photo', media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/Codes.png?raw=true' }
+              }]
+            },
+            reply_markup: {
+              inline_keyboard: [[
+                { text: 'Назад в меню', callback_data: 'cancel', style: 'primary' }
+              ]]
+            }
+          })
+        });
+        const d = await res.json();
+        if (!d.ok) throw new Error(d.description);
+      } catch (err) {
+        console.error('promo sendRichMessage failed:', err.message);
+        await bot.sendMessage(chatId, 'Введіть свій бонусний код:', {
           reply_markup: {
-            inline_keyboard: [[
-              { text: 'Скасувати', callback_data: 'cancel' }
-            ]]
+            inline_keyboard: [[{ text: 'Назад в меню', callback_data: 'cancel', style: 'primary' }]]
           }
-        }
-      );
+        });
+      }
       return;
     }
 
@@ -615,13 +637,13 @@ async function handleUpdate(update) {
   if (state && state.step === 'name') {
     bookingState[chatId] = { ...state, step: 'phone', name: text };
     await bot.sendMessage(chatId,
-      `📝 Ім'я: *${text}*\n\nВведіть номер телефону (або натисніть «Пропустити»):`,
+      `Ім'я: *${text}*\n\nВведіть номер телефону (або натисніть «Пропустити»):`,
       {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '➡️ Пропустити', callback_data: 'skip_phone' }],
-            [{ text: '❌ Скасувати', callback_data: 'cancel_booking' }]
+            [{ text: 'Пропустити', callback_data: 'skip_phone' }],
+            [{ text: 'Скасувати', callback_data: 'cancel_booking' }]
           ]
         }
       }
