@@ -439,7 +439,7 @@ async function handleUpdate(update) {
                 `<blockquote>Але ви завжди можете записатись особисто — напишіть майстру напряму</blockquote>`,
               media: [{
                 id: 'book_img',
-                media: { type: 'photo', media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/BotQuery.png?raw=true' }
+                media: { type: 'photo', media: 'https://github.com/CakeBoxDeveloper/ttm_bot/blob/main/book.png?raw=true' }
               }]
             },
             reply_markup: { inline_keyboard: keyboard }

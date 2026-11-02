@@ -25,6 +25,11 @@ async function sendConfirmation(chatId, date, hour, name, phone) {
     body: JSON.stringify({
       chat_id: chatId,
       rich_message: { html },
+      reply_markup: {
+        inline_keyboard: [[
+          { text: 'Назад в меню', callback_data: 'menu', style: 'primary' }
+        ]]
+      }
     }),
   });
   const data = await res.json();
