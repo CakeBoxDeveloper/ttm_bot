@@ -2,19 +2,44 @@
 
 /**
  * POST /api/book
- * Body: { date, hour, name, phone, userId, firstName }
+ * Body: { date, hour, name, phone, userId }
  *
  * Writes booking to Google Sheets, then sends Telegram confirmation.
  */
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
-async function sendTelegramMessage(chatId, text) {
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+async function sendConfirmation(chatId, date, hour, name, phone) {
+  const html =
+    `<p><b>Запис підтверджено</b></p>` +
+    `<p>${date} о ${hour}:00</p>` +
+    `<p>${name}` + (phone ? `\n${phone}` : '') + `</p>` +
+    `<blockquote>Чекаємо на вас</blockquote>` +
+    `<tg-button-row align="center">` +
+    `<tg-button type="url" style="success" url="https://t.me/Olga_Dind">Написати майстру Ользі</tg-button>` +
+    `</tg-button-row>`;
+
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendRichMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+    body: JSON.stringify({
+      chat_id: chatId,
+      rich_message: { html },
+    }),
   });
+  const data = await res.json();
+  if (!data.ok) {
+    // Fallback to plain message
+    console.error('[/api/book] sendRichMessage failed:', data.description);
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: `Запис підтверджено!\n\n${date} о ${hour}:00\n${name}${phone ? '\n' + phone : ''}\n\nЧекаємо на вас!`,
+      }),
+    });
+  }
 }
 
 module.exports = async (req, res) => {
@@ -37,14 +62,7 @@ module.exports = async (req, res) => {
     console.log(`[/api/book] bookSlot result: ${result}`);
 
     if (result === 'ok') {
-      // Send confirmation back into Telegram chat
-      const txt =
-        `✅ *Запис підтверджено!*\n\n` +
-        `📅 ${date} о ${hour}:00\n` +
-        `👤 ${name}` +
-        (phone ? `\n📞 ${phone}` : '') +
-        `\n\nЧекаємо на вас! 💆`;
-      await sendTelegramMessage(userId, txt);
+      await sendConfirmation(userId, date, hour, name, phone || '');
       return res.status(200).json({ ok: true });
     }
 
